@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run pages:build:*)",
+      "Bash(npx vercel build)",
+      "Bash(npm install:*)",
+      "Bash(npx wrangler deploy:*)",
+      "Bash(npm run build:*)",
+      "Bash(dir:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm ls:*)",
+      "Bash(npx @cloudflare/next-on-pages)",
+      "Bash(npx opennextjs-cloudflare build:*)"
+    ]
+  }
+}

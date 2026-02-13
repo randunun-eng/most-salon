@@ -1,0 +1,60 @@
+
+ G¢àn+Å wrangler 4.61.1 (update available 4.63.0)
+GöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇGöÇ
+node.exe : [33mGû¦ [43;33
+m[[43;30mWARNING[43;33m]
+[0m [1mPages now has 
+wrangler.toml support.[0m
+At C:\Program 
+Files\nodejs\npx.ps1:29 
+char:3
++   & $NODE_EXE 
+$NPX_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~
+    + CategoryInfo         
+     : NotSpecified: ([3  
+  3mGû¦ [43;3...ml supp   
+ ort.[0m:String) [], R    
+emoteException
+    + FullyQualifiedErrorI 
+   d : NativeCommandError
+ 
+
+  We detected a 
+configuration file at C:\Us
+ers\Lenovo\Documents\Antigr
+avity\salon 
+most\wrangler.toml but it 
+is missing the 
+"pages_build_output_dir" 
+field, required by Pages.
+  If you would like to use 
+this configuration file to 
+deploy your project, 
+please use 
+"pages_build_output_dir" 
+to specify the directory 
+of static files to upload.
+  Ignoring configuration 
+file for now, and 
+proceeding with project 
+deploy.
+
+
+
+[31mX [41;31m[[41;97mERR
+OR[41;31m][0m [1mError: 
+Pages only supports files 
+up to 25 MiB in size[0m
+
+  cache/webpack/client-prod
+uction/0.pack is 33.1 MiB 
+in size
+
+
+=ƒ¬¦  Logs were written to 
+"C:\Users\Lenovo\AppData\Ro
+aming\xdg.config\.wrangler\
+logs\wrangler-2026-02-07_17
+-57-34_786.log"

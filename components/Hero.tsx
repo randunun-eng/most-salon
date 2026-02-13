@@ -28,7 +28,7 @@ export default function Hero() {
                     playsInline
                     className="object-cover w-full h-full"
                 >
-                    <source src="/videos/hero.mp4" type="video/mp4" />
+                    <source src="/videos/lasith.mp4" type="video/mp4" />
                 </video>
             </motion.div>
 

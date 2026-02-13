@@ -34,7 +34,7 @@ export default function ClientStories() {
                     playsInline
                     className="w-full h-full object-cover grayscale opacity-50"
                 >
-                    <source src="/videos/stories.mp4" type="video/mp4" />
+                    <source src="/videos/clientstories.mp4" type="video/mp4" />
                 </video>
             </div>
 

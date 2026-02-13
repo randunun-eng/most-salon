@@ -30,7 +30,7 @@ export default function OpeningLoader() {
                         className="w-full h-full object-cover"
                         onEnded={() => setVisible(false)}
                     >
-                        <source src="/videos/opening.mp4" type="video/mp4" />
+                        <source src="/videos/final-opening-loader.mp4" type="video/mp4" />
                     </video>
                 </motion.div>
             )}

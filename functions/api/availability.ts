@@ -1,5 +1,3 @@
-// API Route: Get available slots
-import { NextResponse } from 'next/server';
 import {
     getStylists,
     getStylist,
@@ -7,24 +5,22 @@ import {
     getBookingsForStylist,
     getCachedAvailability,
     setCachedAvailability
-} from '@/lib/database';
+} from '../../lib/database';
 import {
     generateSlotsForStylist,
     generateSlotsAllStylists,
     filterFutureSlots
-} from '@/lib/slot-engine';
+} from '../../lib/slot-engine';
 
-export const runtime = 'edge';
-
-export async function GET(request: Request) {
+export const onRequestGet: PagesFunction = async (context) => {
     try {
-        const { searchParams } = new URL(request.url);
-        const dateStr = searchParams.get('date');
-        const serviceId = searchParams.get('serviceId');
-        const stylistId = searchParams.get('stylistId');
+        const url = new URL(context.request.url);
+        const dateStr = url.searchParams.get('date');
+        const serviceId = url.searchParams.get('serviceId');
+        const stylistId = url.searchParams.get('stylistId');
 
         if (!dateStr || !serviceId) {
-            return NextResponse.json(
+            return Response.json(
                 { error: 'Missing required parameters: date and serviceId' },
                 { status: 400 }
             );
@@ -34,7 +30,7 @@ export async function GET(request: Request) {
         const service = await getService(serviceId);
 
         if (!service) {
-            return NextResponse.json(
+            return Response.json(
                 { error: 'Service not found' },
                 { status: 404 }
             );
@@ -44,7 +40,7 @@ export async function GET(request: Request) {
         if (stylistId && stylistId !== 'any') {
             const stylist = await getStylist(stylistId);
             if (!stylist) {
-                return NextResponse.json(
+                return Response.json(
                     { error: 'Stylist not found' },
                     { status: 404 }
                 );
@@ -54,7 +50,7 @@ export async function GET(request: Request) {
             const cached = await getCachedAvailability(stylistId, date);
             if (cached) {
                 const futureSlots = filterFutureSlots(cached);
-                return NextResponse.json({
+                return Response.json({
                     slots: futureSlots.map(s => s.toISOString()),
                     cached: true,
                     stylist: {
@@ -77,7 +73,7 @@ export async function GET(request: Request) {
             await setCachedAvailability(stylistId, date, slots);
 
             const futureSlots = filterFutureSlots(slots);
-            return NextResponse.json({
+            return Response.json({
                 slots: futureSlots.map(s => s.toISOString()),
                 cached: false,
                 stylist: {
@@ -105,7 +101,7 @@ export async function GET(request: Request) {
 
         const futureSlots = allSlots.filter(slot => slot.start > new Date());
 
-        return NextResponse.json({
+        return Response.json({
             slots: futureSlots.map(slot => ({
                 start: slot.start.toISOString(),
                 end: slot.end.toISOString(),
@@ -118,9 +114,9 @@ export async function GET(request: Request) {
 
     } catch (error) {
         console.error('Error fetching availability:', error);
-        return NextResponse.json(
+        return Response.json(
             { error: 'Failed to fetch availability' },
             { status: 500 }
         );
     }
-}
+};

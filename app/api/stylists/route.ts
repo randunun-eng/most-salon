@@ -2,6 +2,8 @@
 import { NextResponse } from 'next/server';
 import { getStylists } from '@/lib/database';
 
+export const runtime = 'edge';
+
 export async function GET() {
     try {
         const stylists = await getStylists(true);

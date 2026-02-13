@@ -2,6 +2,8 @@ import { streamText } from 'ai';
 import { openai } from '@ai-sdk/openai'; // We don't have a key, so we'll mock or use a custom "mock" provider if possible, or just return a string.
 // Actually, for "mock logic", we can just return a stream of text without calling OpenAI.
 
+export const runtime = 'edge';
+
 export async function POST(req: Request) {
     const { messages } = await req.json();
     const lastMessage = messages[messages.length - 1];

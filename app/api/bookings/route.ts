@@ -2,6 +2,8 @@
 import { NextResponse } from 'next/server';
 import { createBooking, getBookings, updateBookingStatus } from '@/lib/database';
 
+export const runtime = 'edge';
+
 export async function GET() {
     try {
         const bookings = await getBookings();

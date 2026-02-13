@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { getStylists } from '@/lib/database';
 
-export const runtime = 'edge';
+export { runtime } from '../runtime';
 
 export async function GET() {
     try {

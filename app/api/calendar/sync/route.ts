@@ -3,7 +3,7 @@ import { createGoogleCalendarClient } from '@/lib/google-calendar';
 import { analyzeEvent } from '@/lib/calendar-ai';
 import { getBookings, createBooking, updateBookingStatus, getService } from '@/lib/database';
 
-export const runtime = 'edge';
+export { runtime } from '../../runtime';
 
 /**
  * Sync Google Calendar with Database

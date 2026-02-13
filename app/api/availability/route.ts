@@ -14,7 +14,7 @@ import {
     filterFutureSlots
 } from '@/lib/slot-engine';
 
-export const runtime = 'edge';
+export { runtime } from '../runtime';
 
 export async function GET(request: Request) {
     try {

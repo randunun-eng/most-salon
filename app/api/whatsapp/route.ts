@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-export { runtime } from '../runtime';
+export const runtime = 'edge';
 
 export async function POST(request: Request) {
     try {

@@ -64,7 +64,8 @@ export default function MobileOptimizedBooking() {
     const generateWeekDates = () => {
         const today = new Date();
         const dates: Date[] = [];
-        for (let i = 0; i < 14; i++) {
+        // Only allow booking for next 7 days (synced with Google Calendar)
+        for (let i = 0; i < 7; i++) {
             const date = new Date(today);
             date.setDate(today.getDate() + i);
             dates.push(date);

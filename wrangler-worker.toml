@@ -1,0 +1,20 @@
+name = "salon-calendar-sync"
+main = "workers/calendar-sync.ts"
+compatibility_date = "2024-12-01"
+
+# Cron trigger - runs every 10 minutes
+[triggers]
+crons = ["*/10 * * * *"]
+
+# Environment variables (set these in Cloudflare dashboard)
+[vars]
+SYNC_API_URL = "https://most-salon.pages.dev/api/calendar/sync"
+
+# Secrets (set using: wrangler secret put SECRET_NAME)
+# - GOOGLE_CLIENT_ID
+# - GOOGLE_CLIENT_SECRET  
+# - GOOGLE_REFRESH_TOKEN
+# - GOOGLE_CALENDAR_ID
+# - CLOUDFLARE_ACCOUNT_ID
+# - CLOUDFLARE_AI_TOKEN
+# - CRON_SECRET

@@ -43,3 +43,10 @@ next-env.d.ts
 # cloudflare / open-next
 .open-next
 .wrangler
+
+# Security - OAuth credentials and secrets
+google-oauth-credentials.json
+OAUTH_SETUP_COMPLETE.md
+*.credentials.json
+.env.local
+.env.production

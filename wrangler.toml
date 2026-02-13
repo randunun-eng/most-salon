@@ -1,0 +1,5 @@
+name = "most-salon"
+compatibility_date = "2024-12-01"
+
+[assets]
+directory = "./out"

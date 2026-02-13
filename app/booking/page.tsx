@@ -1,7 +1,7 @@
 'use client';
 
 import Navbar from "@/components/Navbar";
-import ProductionBookingFlow from "@/components/ProductionBookingFlow";
+import EnhancedBookingFlow from "@/components/ProductionBookingFlow";
 import BackgroundAudio from "@/components/BackgroundAudio";
 import { Suspense } from "react";
 import FadeIn from "@/components/FadeIn";
@@ -19,7 +19,7 @@ export default function BookingPage() {
                 <FadeIn delay={0.2}>
                     <div className="bg-card border border-border/50 shadow-sm p-6 md:p-8">
                         <Suspense fallback={<div className="text-center text-muted-foreground py-20">Loading booking experience...</div>}>
-                            <ProductionBookingFlow />
+                            <EnhancedBookingFlow />
                         </Suspense>
                     </div>
                 </FadeIn>

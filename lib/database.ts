@@ -116,21 +116,107 @@ export function initializeDatabase() {
         }
     ];
 
-    // Sample bookings (for testing)
+    // Sample bookings (for testing slot blocking)
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(10, 0, 0, 0);
+
+    // Sarah Johnson (stylist-1) - Busy morning
+    const sarah10am = new Date(tomorrow);
+    sarah10am.setHours(10, 0, 0, 0);
+
+    const sarah11am = new Date(tomorrow);
+    sarah11am.setHours(11, 0, 0, 0);
+
+    const sarah2pm = new Date(tomorrow);
+    sarah2pm.setHours(14, 0, 0, 0);
+
+    // Michael Chen (stylist-2) - Busy afternoon
+    const michael2pm = new Date(tomorrow);
+    michael2pm.setHours(14, 0, 0, 0);
+
+    const michael4pm = new Date(tomorrow);
+    michael4pm.setHours(16, 0, 0, 0);
+
+    // Emma Williams (stylist-3) - Morning booking
+    const emma9am = new Date(tomorrow);
+    emma9am.setHours(9, 0, 0, 0);
 
     bookings = [
+        // Sarah's bookings - 10 AM (60 min haircut)
         {
-            id: 'booking-1',
-            client_name: 'Test Client',
-            client_email: 'test@example.com',
+            id: 'booking-sarah-1',
+            client_name: 'Alice Brown',
+            client_email: 'alice@example.com',
             client_phone: '+94771111111',
-            service_id: 'service-1',
+            service_id: 'service-1', // Haircut 60 min
             stylist_id: 'stylist-1',
-            start_time: tomorrow,
-            end_time: new Date(tomorrow.getTime() + 60 * 60 * 1000),
+            start_time: sarah10am,
+            end_time: new Date(sarah10am.getTime() + 60 * 60 * 1000),
+            status: 'confirmed',
+            created_at: new Date()
+        },
+        // Sarah's bookings - 11 AM (90 min highlights)
+        {
+            id: 'booking-sarah-2',
+            client_name: 'Bob Smith',
+            client_email: 'bob@example.com',
+            client_phone: '+94772222222',
+            service_id: 'service-3', // Highlights 90 min
+            stylist_id: 'stylist-1',
+            start_time: sarah11am,
+            end_time: new Date(sarah11am.getTime() + 90 * 60 * 1000),
+            status: 'confirmed',
+            created_at: new Date()
+        },
+        // Sarah's bookings - 2 PM (120 min coloring)
+        {
+            id: 'booking-sarah-3',
+            client_name: 'Carol White',
+            client_email: 'carol@example.com',
+            client_phone: '+94773333333',
+            service_id: 'service-2', // Hair Coloring 120 min
+            stylist_id: 'stylist-1',
+            start_time: sarah2pm,
+            end_time: new Date(sarah2pm.getTime() + 120 * 60 * 1000),
+            status: 'confirmed',
+            created_at: new Date()
+        },
+        // Michael's bookings - 2 PM (60 min haircut)
+        {
+            id: 'booking-michael-1',
+            client_name: 'David Lee',
+            client_email: 'david@example.com',
+            client_phone: '+94774444444',
+            service_id: 'service-1', // Haircut 60 min
+            stylist_id: 'stylist-2',
+            start_time: michael2pm,
+            end_time: new Date(michael2pm.getTime() + 60 * 60 * 1000),
+            status: 'confirmed',
+            created_at: new Date()
+        },
+        // Michael's bookings - 4 PM (90 min highlights)
+        {
+            id: 'booking-michael-2',
+            client_name: 'Eva Martinez',
+            client_email: 'eva@example.com',
+            client_phone: '+94775555555',
+            service_id: 'service-3', // Highlights 90 min
+            stylist_id: 'stylist-2',
+            start_time: michael4pm,
+            end_time: new Date(michael4pm.getTime() + 90 * 60 * 1000),
+            status: 'confirmed',
+            created_at: new Date()
+        },
+        // Emma's bookings - 9 AM (45 min makeup)
+        {
+            id: 'booking-emma-1',
+            client_name: 'Fiona Green',
+            client_email: 'fiona@example.com',
+            client_phone: '+94776666666',
+            service_id: 'service-5', // Makeup 45 min
+            stylist_id: 'stylist-3',
+            start_time: emma9am,
+            end_time: new Date(emma9am.getTime() + 45 * 60 * 1000),
             status: 'confirmed',
             created_at: new Date()
         }

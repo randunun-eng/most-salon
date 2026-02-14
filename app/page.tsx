@@ -49,7 +49,7 @@ export default function Home() {
       <LookBook />
 
       {/* 9. Booking / Welcome Section (Restored & Updated) */}
-      <section className="relative py-32 px-4 overflow-hidden bg-black text-white">
+      <section className="relative py-16 md:py-32 px-4 overflow-hidden bg-black text-white">
         <div className="absolute inset-0 opacity-40">
           <video
             autoPlay
@@ -62,24 +62,24 @@ export default function Home() {
           </video>
         </div>
 
-        <div className="relative z-10 container mx-auto grid md:grid-cols-2 gap-12 items-center">
+        <div className="relative z-10 container mx-auto grid md:grid-cols-2 gap-8 md:gap-12 items-center">
           <FadeIn direction="right">
-            <div className="space-y-8">
-              <h2 className="text-4xl md:text-6xl font-serif">Welcome to The MOST.</h2>
-              <p className="text-lg md:text-xl text-gray-300 font-light leading-relaxed">
+            <div className="space-y-6 md:space-y-8">
+              <h2 className="text-3xl md:text-4xl lg:text-6xl font-serif">Welcome to The MOST.</h2>
+              <p className="text-base md:text-lg lg:text-xl text-gray-300 font-light leading-relaxed">
                 Step into a world where your time is respected and your style is celebrated.
                 Our team is ready to welcome you with open arms and scissors sharp.
               </p>
-              <Button asChild size="lg" className="bg-white text-black hover:bg-white/90 text-lg h-16 px-12 rounded-none uppercase tracking-widest transition-transform hover:scale-105 border-none">
+              <Button asChild size="lg" className="bg-white text-black hover:bg-white/90 text-base md:text-lg h-14 md:h-16 px-8 md:px-12 rounded-none uppercase tracking-widest transition-transform hover:scale-105 border-none w-full md:w-auto">
                 <Link href="/booking">Book Your Visit</Link>
               </Button>
             </div>
           </FadeIn>
 
           <FadeIn delay={0.3}>
-            <div className="relative h-[400px] w-full border border-white/10 rounded-lg overflow-hidden flex items-end justify-center bg-gradient-to-t from-black/80 to-transparent">
-              <div className="text-center p-8">
-                <p className="text-2xl font-serif italic text-white/80">" We are ready for you. "</p>
+            <div className="relative h-[300px] md:h-[400px] w-full border border-white/10 rounded-lg overflow-hidden flex items-end justify-center bg-gradient-to-t from-black/80 to-transparent">
+              <div className="text-center p-6 md:p-8">
+                <p className="text-xl md:text-2xl font-serif italic text-white/80">" We are ready for you. "</p>
               </div>
             </div>
           </FadeIn>

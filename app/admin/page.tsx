@@ -172,7 +172,7 @@ export default function AdminPage() {
             {/* Sidebar / Date Picker */}
             <div className="md:w-80 bg-white border-r p-6 flex flex-col gap-6 h-screen overflow-y-auto sticky top-0">
                 <div className="flex items-center justify-between">
-                    <h1 className="text-xl font-bold">Admin Panel</h1>
+                    <h1 className="text-xl font-bold text-black">Admin Panel</h1>
                     <Button variant="ghost" size="icon" onClick={() => setIsAuthenticated(false)}>
                         <LogOut className="w-4 h-4" />
                     </Button>
@@ -187,13 +187,13 @@ export default function AdminPage() {
                 </div>
 
                 <div className="space-y-2">
-                    <h3 className="font-medium text-sm text-gray-500">Stylists</h3>
+                    <h3 className="font-medium text-sm text-black">Stylists</h3>
                     {stylists.map(s => (
                         <div key={s.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-100">
                             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                                 {s.name.charAt(0)}
                             </div>
-                            <span className="text-sm">{s.name}</span>
+                            <span className="text-sm text-black font-medium">{s.name}</span>
                         </div>
                     ))}
                 </div>
@@ -203,8 +203,8 @@ export default function AdminPage() {
             <div className="flex-1 p-6 md:p-10 overflow-y-auto">
                 <div className="flex items-center justify-between mb-8">
                     <div>
-                        <h2 className="text-3xl font-bold">{date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
-                        <p className="text-gray-500">{selectedDateBookings.length} booking{selectedDateBookings.length !== 1 ? 's' : ''}</p>
+                        <h2 className="text-3xl font-bold text-black">{date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
+                        <p className="text-black font-medium">{selectedDateBookings.length} booking{selectedDateBookings.length !== 1 ? 's' : ''}</p>
                     </div>
                     {/* Add Booking Button (can be implemented similarly to edit or redirect to public page) */}
                     <DropdownAdd bookings={selectedDateBookings} />

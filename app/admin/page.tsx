@@ -96,7 +96,7 @@ export default function AdminPage() {
         }
     };
 
-    // Filter bookings for selected date
+    // Filter bookings for selected date (Restored handlers)
     const selectedDateBookings = bookings.filter(b => {
         if (!b || !b.start_time) return false;
         const d = new Date(b.start_time);

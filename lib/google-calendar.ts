@@ -188,14 +188,33 @@ export class GoogleCalendarClient {
     }
 
     /**
-     * Update event in Google Calendar
+     * Update event in Google Calendar (Finds event effectively by Booking ID)
      */
-    async updateEvent(eventId: string, booking: Booking, serviceName: string): Promise<void> {
+    async updateEvent(booking: Booking, serviceName: string, stylistName: string): Promise<void> {
         const token = await this.getAccessToken();
 
-        const event = {
-            summary: `${serviceName} - ${booking.client_name}`,
-            description: `Phone: ${booking.client_phone}\nEmail: ${booking.client_email}\nBooking ID: ${booking.id}`,
+        // 1. Search for the event by Booking ID
+        const searchParams = new URLSearchParams({
+            q: `Booking ID: ${booking.id}`,
+            singleEvents: 'true'
+        });
+
+        const searchRes = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${this.config.calendarId}/events?${searchParams}`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        const searchData = await searchRes.json();
+        const event = searchData.items?.[0];
+
+        if (!event) {
+            console.log(`Event for booking ${booking.id} not found in GCal`);
+            return;
+        }
+
+        // 2. Update the event
+        const eventBody = {
+            summary: `${serviceName} (${stylistName}) - ${booking.client_name}`,
+            description: `Client: ${booking.client_name}\nPhone: ${booking.client_phone}\nEmail: ${booking.client_email}\nStylist: ${stylistName}\nBooking ID: ${booking.id}`,
             start: {
                 dateTime: new Date(booking.start_time).toISOString(),
                 timeZone: 'Asia/Colombo'
@@ -207,32 +226,49 @@ export class GoogleCalendarClient {
             status: booking.status === 'confirmed' ? 'confirmed' : 'tentative'
         };
 
-        await fetch(
-            `https://www.googleapis.com/calendar/v3/calendars/${this.config.calendarId}/events/${eventId}`,
+        const updateRes = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${this.config.calendarId}/events/${event.id}`,
             {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(event)
+                body: JSON.stringify(eventBody)
             }
         );
+
+        if (!updateRes.ok) {
+            console.error('Failed to update GCal event', await updateRes.text());
+        }
     }
 
     /**
-     * Delete event from Google Calendar
+     * Delete event from Google Calendar (Finds event effectively by Booking ID)
      */
-    async deleteEvent(eventId: string): Promise<void> {
+    async deleteEvent(bookingId: string): Promise<void> {
         const token = await this.getAccessToken();
 
+        // 1. Search for the event by Booking ID
+        const searchParams = new URLSearchParams({
+            q: `Booking ID: ${bookingId}`,
+            singleEvents: 'true'
+        });
+
+        const searchRes = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${this.config.calendarId}/events?${searchParams}`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        const searchData = await searchRes.json();
+        const event = searchData.items?.[0];
+
+        if (!event) return;
+
         await fetch(
-            `https://www.googleapis.com/calendar/v3/calendars/${this.config.calendarId}/events/${eventId}`,
+            `https://www.googleapis.com/calendar/v3/calendars/${this.config.calendarId}/events/${event.id}`,
             {
                 method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+                headers: { 'Authorization': `Bearer ${token}` }
             }
         );
     }

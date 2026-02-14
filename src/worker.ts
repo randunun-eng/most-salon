@@ -259,20 +259,12 @@ async function handleEditBooking(request: Request, env: Env): Promise<Response> 
     try {
         if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
             const calendar = createGoogleCalendarClient(env);
-            // Fetch existing event? We don't store Google Event ID in DB currently...
-            // Wait, we DO NOT store event ID. So we can't update the specific event easily
-            // unless we search by description/Booking ID.
-            // This is complex. For now, rely on 2-way sync or just let calendar be updated separately?
-            // Actually, if we update time here, the GCal event remains old time.
-            // The user asked "if salon owner must alter...".
-            // Ideally we find the event by booking ID and update it.
-            // getBusySlots finds it. We can implement finding logic.
-            // For MVP: Just update DB. Owner can update Calendar manually or we implement full sync later.
-            // But I'll modify the "2-Way Sync" loop to handle this automatically on next check?
-            // No, the check goes GCal -> DB. Not DB -> GCal.
-            // I'll skip GCal update for now to avoid complexity, or try a simple search.
+            const service = await getService(env.DB, booking.service_id);
+            const stylist = await getStylist(env.DB, booking.stylist_id);
 
-            // Simplest: Don't error if sync fails.
+            if (service && stylist) {
+                await calendar.updateEvent(booking, service.name, stylist.name);
+            }
         }
     } catch (e) {
         console.error('Calendar update failed', e);
@@ -289,6 +281,16 @@ async function handleDeleteBooking(request: Request, env: Env): Promise<Response
 
     const booking = await updateBookingStatus(env.DB, id, 'cancelled');
     if (!booking) return json({ error: 'Booking not found' }, 404);
+
+    // Sync cancellation to Google Calendar
+    try {
+        if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
+            const calendar = createGoogleCalendarClient(env);
+            await calendar.deleteEvent(booking.id);
+        }
+    } catch (e) {
+        console.error('Calendar delete failed', e);
+    }
 
     return json(booking);
 }

@@ -192,13 +192,7 @@ async function handleCreateBooking(request: Request, env: Env): Promise<Response
     try {
         if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
             const calendar = createGoogleCalendarClient(env);
-            await calendar.createEvent({
-                summary: `${service.name} - ${client_name}`,
-                description: `Client: ${client_name}\nPhone: ${client_phone}\nEmail: ${client_email}\nStylist: ${stylist.name}\nBooking ID: ${booking.id}`,
-                start: { dateTime: startTime.toISOString(), timeZone: 'Asia/Colombo' },
-                end: { dateTime: endTime.toISOString(), timeZone: 'Asia/Colombo' },
-                attendees: [{ email: client_email }],
-            });
+            await calendar.createEvent(booking, service.name);
         }
     } catch (calendarError) {
         console.error('Google Calendar sync failed:', calendarError);

@@ -18,9 +18,9 @@ export function initializeDatabase() {
             phone: '+94771234567',
             bio: 'Senior Hair Stylist with 10+ years experience',
             photo_url: '/images/stylist-1.jpg',
-            working_days: [1, 2, 3, 4, 5, 6], // Monday to Saturday
+            working_days: [0, 1, 2, 3, 4, 5, 6], // Everyday
             start_time: '09:00',
-            end_time: '18:00',
+            end_time: '19:00',
             break_start: '13:00',
             break_end: '14:00',
             is_active: true,
@@ -33,8 +33,8 @@ export function initializeDatabase() {
             phone: '+94771234568',
             bio: 'Color Specialist and Creative Director',
             photo_url: '/images/stylist-2.jpg',
-            working_days: [1, 2, 3, 4, 5], // Monday to Friday
-            start_time: '10:00',
+            working_days: [0, 1, 2, 3, 4, 5, 6], // Everyday
+            start_time: '09:00',
             end_time: '19:00',
             break_start: '14:00',
             break_end: '15:00',
@@ -48,9 +48,9 @@ export function initializeDatabase() {
             phone: '+94771234569',
             bio: 'Makeup Artist and Beauty Consultant',
             photo_url: '/images/stylist-3.jpg',
-            working_days: [0, 2, 4, 6], // Sun, Tue, Thu, Sat
+            working_days: [0, 1, 2, 3, 4, 5, 6], // Everyday
             start_time: '09:00',
-            end_time: '17:00',
+            end_time: '19:00',
             is_active: true,
             created_at: new Date()
         }

@@ -1,256 +1,74 @@
-// In-Memory Database (Production: Replace with PostgreSQL/Neon)
-import { Stylist, Service, Booking, AvailabilityCache } from './db-types';
+// Cloudflare D1 Database Integration
+import { Stylist, Service, Booking, AvailabilityCache, D1Database } from './db-types';
 
-// In-memory storage
-let stylists: Stylist[] = [];
-let services: Service[] = [];
-let bookings: Booking[] = [];
+// In-memory cache for availability (per-isolate)
 let availabilityCache: Map<string, AvailabilityCache> = new Map();
 
-// Initialize with demo data
-export function initializeDatabase() {
-    // Stylists
-    stylists = [
-        {
-            id: 'stylist-1',
-            name: 'Sarah Johnson',
-            email: 'sarah@salonmost.com',
-            phone: '+94771234567',
-            bio: 'Senior Hair Stylist with 10+ years experience',
-            photo_url: '/images/stylist-1.jpg',
-            working_days: [0, 1, 2, 3, 4, 5, 6], // Everyday
-            start_time: '09:00',
-            end_time: '19:00',
-            break_start: '13:00',
-            break_end: '14:00',
-            is_active: true,
-            created_at: new Date()
-        },
-        {
-            id: 'stylist-2',
-            name: 'Michael Chen',
-            email: 'michael@salonmost.com',
-            phone: '+94771234568',
-            bio: 'Color Specialist and Creative Director',
-            photo_url: '/images/stylist-2.jpg',
-            working_days: [0, 1, 2, 3, 4, 5, 6], // Everyday
-            start_time: '09:00',
-            end_time: '19:00',
-            break_start: '14:00',
-            break_end: '15:00',
-            is_active: true,
-            created_at: new Date()
-        },
-        {
-            id: 'stylist-3',
-            name: 'Emma Williams',
-            email: 'emma@salonmost.com',
-            phone: '+94771234569',
-            bio: 'Makeup Artist and Beauty Consultant',
-            photo_url: '/images/stylist-3.jpg',
-            working_days: [0, 1, 2, 3, 4, 5, 6], // Everyday
-            start_time: '09:00',
-            end_time: '19:00',
-            is_active: true,
-            created_at: new Date()
-        }
-    ];
+// Helper to parse JSON fields from DB
+function parseStylist(stylist: any): Stylist {
+    return {
+        ...stylist,
+        working_days: JSON.parse(stylist.working_days),
+        is_active: Boolean(stylist.is_active),
+        created_at: new Date(stylist.created_at)
+    };
+}
 
-    // Services
-    services = [
-        {
-            id: 'service-1',
-            name: 'Haircut & Styling',
-            duration_minutes: 60,
-            price: 3500,
-            created_at: new Date()
-        },
-        {
-            id: 'service-2',
-            name: 'Hair Coloring',
-            duration_minutes: 120,
-            price: 8500,
-            created_at: new Date()
-        },
-        {
-            id: 'service-3',
-            name: 'Highlights',
-            duration_minutes: 90,
-            price: 6500,
-            created_at: new Date()
-        },
-        {
-            id: 'service-4',
-            name: 'Keratin Treatment',
-            duration_minutes: 150,
-            price: 12000,
-            created_at: new Date()
-        },
-        {
-            id: 'service-5',
-            name: 'Makeup Application',
-            duration_minutes: 45,
-            price: 4500,
-            created_at: new Date()
-        },
-        {
-            id: 'service-6',
-            name: 'Bridal Package',
-            duration_minutes: 180,
-            price: 25000,
-            created_at: new Date()
-        },
-        {
-            id: 'service-7',
-            name: 'Manicure & Pedicure',
-            duration_minutes: 75,
-            price: 3000,
-            created_at: new Date()
-        },
-        {
-            id: 'service-8',
-            name: 'Facial Treatment',
-            duration_minutes: 60,
-            price: 5500,
-            created_at: new Date()
-        }
-    ];
-
-    // Sample bookings (for testing slot blocking)
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // Sarah Johnson (stylist-1) - Busy morning
-    const sarah10am = new Date(tomorrow);
-    sarah10am.setHours(10, 0, 0, 0);
-
-    const sarah11am = new Date(tomorrow);
-    sarah11am.setHours(11, 0, 0, 0);
-
-    const sarah2pm = new Date(tomorrow);
-    sarah2pm.setHours(14, 0, 0, 0);
-
-    // Michael Chen (stylist-2) - Busy afternoon
-    const michael2pm = new Date(tomorrow);
-    michael2pm.setHours(14, 0, 0, 0);
-
-    const michael4pm = new Date(tomorrow);
-    michael4pm.setHours(16, 0, 0, 0);
-
-    // Emma Williams (stylist-3) - Morning booking
-    const emma9am = new Date(tomorrow);
-    emma9am.setHours(9, 0, 0, 0);
-
-    bookings = [
-        // Sarah's bookings - 10 AM (60 min haircut)
-        {
-            id: 'booking-sarah-1',
-            client_name: 'Alice Brown',
-            client_email: 'alice@example.com',
-            client_phone: '+94771111111',
-            service_id: 'service-1', // Haircut 60 min
-            stylist_id: 'stylist-1',
-            start_time: sarah10am,
-            end_time: new Date(sarah10am.getTime() + 60 * 60 * 1000),
-            status: 'confirmed',
-            created_at: new Date()
-        },
-        // Sarah's bookings - 11 AM (90 min highlights)
-        {
-            id: 'booking-sarah-2',
-            client_name: 'Bob Smith',
-            client_email: 'bob@example.com',
-            client_phone: '+94772222222',
-            service_id: 'service-3', // Highlights 90 min
-            stylist_id: 'stylist-1',
-            start_time: sarah11am,
-            end_time: new Date(sarah11am.getTime() + 90 * 60 * 1000),
-            status: 'confirmed',
-            created_at: new Date()
-        },
-        // Sarah's bookings - 2 PM (120 min coloring)
-        {
-            id: 'booking-sarah-3',
-            client_name: 'Carol White',
-            client_email: 'carol@example.com',
-            client_phone: '+94773333333',
-            service_id: 'service-2', // Hair Coloring 120 min
-            stylist_id: 'stylist-1',
-            start_time: sarah2pm,
-            end_time: new Date(sarah2pm.getTime() + 120 * 60 * 1000),
-            status: 'confirmed',
-            created_at: new Date()
-        },
-        // Michael's bookings - 2 PM (60 min haircut)
-        {
-            id: 'booking-michael-1',
-            client_name: 'David Lee',
-            client_email: 'david@example.com',
-            client_phone: '+94774444444',
-            service_id: 'service-1', // Haircut 60 min
-            stylist_id: 'stylist-2',
-            start_time: michael2pm,
-            end_time: new Date(michael2pm.getTime() + 60 * 60 * 1000),
-            status: 'confirmed',
-            created_at: new Date()
-        },
-        // Michael's bookings - 4 PM (90 min highlights)
-        {
-            id: 'booking-michael-2',
-            client_name: 'Eva Martinez',
-            client_email: 'eva@example.com',
-            client_phone: '+94775555555',
-            service_id: 'service-3', // Highlights 90 min
-            stylist_id: 'stylist-2',
-            start_time: michael4pm,
-            end_time: new Date(michael4pm.getTime() + 90 * 60 * 1000),
-            status: 'confirmed',
-            created_at: new Date()
-        },
-        // Emma's bookings - 9 AM (45 min makeup)
-        {
-            id: 'booking-emma-1',
-            client_name: 'Fiona Green',
-            client_email: 'fiona@example.com',
-            client_phone: '+94776666666',
-            service_id: 'service-5', // Makeup 45 min
-            stylist_id: 'stylist-3',
-            start_time: emma9am,
-            end_time: new Date(emma9am.getTime() + 45 * 60 * 1000),
-            status: 'confirmed',
-            created_at: new Date()
-        }
-    ];
+function parseBooking(booking: any): Booking {
+    return {
+        ...booking,
+        start_time: new Date(booking.start_time),
+        end_time: new Date(booking.end_time),
+        created_at: new Date(booking.created_at)
+    };
 }
 
 // CRUD Operations for Stylists
-export async function getStylists(activeOnly = true): Promise<Stylist[]> {
-    return activeOnly ? stylists.filter(s => s.is_active) : stylists;
+export async function getStylists(db: D1Database, activeOnly = true): Promise<Stylist[]> {
+    const query = activeOnly
+        ? 'SELECT * FROM stylists WHERE is_active = 1'
+        : 'SELECT * FROM stylists';
+
+    const { results } = await db.prepare(query).all();
+    return results.map(parseStylist);
 }
 
-export async function getStylist(id: string): Promise<Stylist | null> {
-    return stylists.find(s => s.id === id) || null;
+export async function getStylist(db: D1Database, id: string): Promise<Stylist | null> {
+    const stylist: any = await db.prepare('SELECT * FROM stylists WHERE id = ?').bind(id).first();
+    return stylist ? parseStylist(stylist) : null;
 }
 
 // CRUD Operations for Services
-export async function getServices(): Promise<Service[]> {
-    return services;
+export async function getServices(db: D1Database): Promise<Service[]> {
+    const { results } = await db.prepare('SELECT * FROM services').all();
+    return results.map((s: any) => ({
+        ...s,
+        created_at: new Date(s.created_at)
+    }));
 }
 
-export async function getService(id: string): Promise<Service | null> {
-    return services.find(s => s.id === id) || null;
+export async function getService(db: D1Database, id: string): Promise<Service | null> {
+    const service: any = await db.prepare('SELECT * FROM services WHERE id = ?').bind(id).first();
+    if (!service) return null;
+    return {
+        ...service,
+        created_at: new Date(service.created_at)
+    };
 }
 
 // CRUD Operations for Bookings
-export async function getBookings(): Promise<Booking[]> {
-    return bookings;
+export async function getBookings(db: D1Database): Promise<Booking[]> {
+    const { results } = await db.prepare('SELECT * FROM bookings ORDER BY created_at DESC').all();
+    return results.map(parseBooking);
 }
 
-export async function getBooking(id: string): Promise<Booking | null> {
-    return bookings.find(b => b.id === id) || null;
+export async function getBooking(db: D1Database, id: string): Promise<Booking | null> {
+    const booking: any = await db.prepare('SELECT * FROM bookings WHERE id = ?').bind(id).first();
+    return booking ? parseBooking(booking) : null;
 }
 
 export async function getBookingsForStylist(
+    db: D1Database,
     stylistId: string,
     date: Date
 ): Promise<Booking[]> {
@@ -260,49 +78,61 @@ export async function getBookingsForStylist(
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
-    return bookings.filter(b =>
-        b.stylist_id === stylistId &&
-        b.status !== 'cancelled' &&
-        new Date(b.start_time) >= startOfDay &&
-        new Date(b.start_time) <= endOfDay
-    );
+    const { results } = await db.prepare(
+        `SELECT * FROM bookings 
+         WHERE stylist_id = ? 
+         AND status != 'cancelled' 
+         AND start_time >= ? 
+         AND start_time <= ?`
+    ).bind(stylistId, startOfDay.toISOString(), endOfDay.toISOString()).all();
+
+    return results.map(parseBooking);
 }
 
-export async function createBooking(data: Omit<Booking, 'id' | 'created_at'>): Promise<Booking> {
-    const booking: Booking = {
-        ...data,
-        id: `booking-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        created_at: new Date()
-    };
+export async function createBooking(db: D1Database, data: Omit<Booking, 'id' | 'created_at'>): Promise<Booking> {
+    const id = `booking-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const created_at = new Date().toISOString();
 
-    bookings.push(booking);
+    await db.prepare(
+        `INSERT INTO bookings (id, client_name, client_email, client_phone, service_id, stylist_id, start_time, end_time, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+        id,
+        data.client_name,
+        data.client_email,
+        data.client_phone,
+        data.service_id,
+        data.stylist_id,
+        data.start_time.toISOString(),
+        data.end_time.toISOString(),
+        'confirmed', // Default status
+        created_at
+    ).run();
 
-    // Invalidate cache for this stylist and date
-    const dateKey = booking.start_time.toISOString().split('T')[0];
-    const cacheKey = `${booking.stylist_id}-${dateKey}`;
+    // Invalidate cache
+    const dateKey = data.start_time.toISOString().split('T')[0];
+    const cacheKey = `${data.stylist_id}-${dateKey}`;
     availabilityCache.delete(cacheKey);
 
-    return booking;
+    return {
+        id,
+        ...data,
+        status: 'confirmed',
+        created_at: new Date(created_at)
+    };
 }
 
 export async function updateBookingStatus(
+    db: D1Database,
     id: string,
     status: 'pending' | 'confirmed' | 'cancelled'
 ): Promise<Booking | null> {
-    const booking = bookings.find(b => b.id === id);
-    if (!booking) return null;
+    await db.prepare('UPDATE bookings SET status = ? WHERE id = ?').bind(status, id).run();
 
-    booking.status = status;
-
-    // Invalidate cache
-    const dateKey = booking.start_time.toISOString().split('T')[0];
-    const cacheKey = `${booking.stylist_id}-${dateKey}`;
-    availabilityCache.delete(cacheKey);
-
-    return booking;
+    return getBooking(db, id);
 }
 
-// Availability Cache Operations
+// Availability Cache Operations (Memory)
 export async function getCachedAvailability(
     stylistId: string,
     date: Date
@@ -338,6 +168,3 @@ export async function setCachedAvailability(
         last_updated: new Date()
     });
 }
-
-// Initialize on module load
-initializeDatabase();

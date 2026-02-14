@@ -1,4 +1,4 @@
-// Worker entry point — handles API routing + serves static assets
+import { D1Database } from '../lib/db-types';
 import {
     getServices,
     getStylists,
@@ -7,9 +7,7 @@ import {
     getBookings,
     createBooking,
     updateBookingStatus,
-    getBookingsForStylist,
-    getCachedAvailability,
-    setCachedAvailability
+    getBookingsForStylist
 } from '../lib/database';
 import {
     generateSlotsForStylist,
@@ -20,6 +18,7 @@ import { createGoogleCalendarClient } from '../lib/google-calendar';
 
 interface Env {
     ASSETS: { fetch: (request: Request) => Promise<Response> };
+    DB: D1Database;
     CLOUDFLARE_ACCOUNT_ID?: string;
     CLOUDFLARE_AI_TOKEN?: string;
     GOOGLE_CLIENT_ID?: string;
@@ -48,11 +47,11 @@ export default {
         // API routing
         try {
             if (path === '/api/services' && method === 'GET') {
-                return json(await getServices());
+                return json(await getServices(env.DB));
             }
 
             if (path === '/api/stylists' && method === 'GET') {
-                return json(await getStylists(true));
+                return json(await getStylists(env.DB, true));
             }
 
             if (path === '/api/availability' && method === 'GET') {
@@ -60,7 +59,7 @@ export default {
             }
 
             if (path === '/api/bookings' && method === 'GET') {
-                return json(await getBookings());
+                return json(await getBookings(env.DB));
             }
 
             if (path === '/api/bookings' && method === 'POST') {
@@ -111,7 +110,7 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
     }
 
     const date = new Date(dateStr);
-    const service = await getService(serviceId);
+    const service = await getService(env.DB, serviceId);
 
     if (!service) {
         return json({ error: 'Service not found' }, 404);
@@ -130,10 +129,10 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
     }
 
     if (stylistId && stylistId !== 'any') {
-        const stylist = await getStylist(stylistId);
+        const stylist = await getStylist(env.DB, stylistId);
         if (!stylist) return json({ error: 'Stylist not found' }, 404);
 
-        const bookings = await getBookingsForStylist(stylistId, date);
+        const bookings = await getBookingsForStylist(env.DB, stylistId, date);
         const slots = generateSlotsForStylist(stylist, date, service.duration_minutes, bookings, blockedRanges);
 
         return json({
@@ -144,10 +143,10 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
     }
 
     // Auto-assign mode
-    const stylists = await getStylists(true);
+    const stylists = await getStylists(env.DB, true);
     const bookingsByStyleist = new Map();
     for (const stylist of stylists) {
-        bookingsByStyleist.set(stylist.id, await getBookingsForStylist(stylist.id, date));
+        bookingsByStyleist.set(stylist.id, await getBookingsForStylist(env.DB, stylist.id, date));
     }
 
     const allSlots = generateSlotsAllStylists(stylists, date, service.duration_minutes, bookingsByStyleist, blockedRanges);
@@ -173,17 +172,17 @@ async function handleCreateBooking(request: Request, env: Env): Promise<Response
         return json({ error: 'Missing required fields' }, 400);
     }
 
-    const service = await getService(service_id);
+    const service = await getService(env.DB, service_id);
     if (!service) return json({ error: 'Service not found' }, 404);
 
-    const stylist = await getStylist(stylist_id);
+    const stylist = await getStylist(env.DB, stylist_id);
     if (!stylist) return json({ error: 'Stylist not found' }, 404);
 
     const startTime = new Date(start_time);
     const endTime = new Date(startTime);
     endTime.setMinutes(endTime.getMinutes() + service.duration_minutes);
 
-    const booking = await createBooking({
+    const booking = await createBooking(env.DB, {
         client_name, client_email, client_phone, service_id, stylist_id,
         start_time: startTime,
         end_time: endTime,
@@ -213,7 +212,7 @@ async function handleUpdateBooking(request: Request, env: Env): Promise<Response
         return json({ error: 'Invalid status' }, 400);
     }
 
-    const booking = await updateBookingStatus(id, status);
+    const booking = await updateBookingStatus(env.DB, id, status);
     if (!booking) return json({ error: 'Booking not found' }, 404);
 
     return json(booking);

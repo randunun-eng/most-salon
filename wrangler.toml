@@ -5,3 +5,8 @@ main = "src/worker.ts"
 [assets]
 directory = "./out"
 binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "most-salon-db"
+database_id = "c4dc8d6f-372c-4e8b-a83b-0793e1a8ad22"

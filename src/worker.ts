@@ -7,6 +7,7 @@ import {
     getBookings,
     createBooking,
     updateBookingStatus,
+    updateBookingTime,
     getBookingsForStylist
 } from '../lib/database';
 import {
@@ -117,11 +118,24 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
     }
 
     // Fetch busy slots from Google Calendar
-    let blockedRanges: { start: Date, end: Date }[] = [];
+    let blockedRanges: { start: Date, end: Date, bookingId?: string }[] = [];
     try {
         if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
             const calendar = createGoogleCalendarClient(env);
             blockedRanges = await calendar.getBusySlots(date);
+
+            // Sync: Update DB bookings if GCal has them
+            if (blockedRanges.length > 0) {
+                for (const range of blockedRanges) {
+                    if (range.bookingId) {
+                        try {
+                            await updateBookingTime(env.DB, range.bookingId, range.start, range.end);
+                        } catch (err) {
+                            console.error(`Failed to sync booking ${range.bookingId}:`, err);
+                        }
+                    }
+                }
+            }
         }
     } catch (e) {
         console.error('Failed to fetch calendar slots:', e);

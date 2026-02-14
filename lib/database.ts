@@ -132,6 +132,19 @@ export async function updateBookingStatus(
     return getBooking(db, id);
 }
 
+export async function updateBookingTime(
+    db: D1Database,
+    id: string,
+    startTime: Date,
+    endTime: Date
+): Promise<void> {
+    await db.prepare('UPDATE bookings SET start_time = ?, end_time = ? WHERE id = ?')
+        .bind(startTime.toISOString(), endTime.toISOString(), id)
+        .run();
+
+    // Invalidate cache implicitly by logic flow or could start using cache keys
+}
+
 // Availability Cache Operations (Memory)
 export async function getCachedAvailability(
     stylistId: string,

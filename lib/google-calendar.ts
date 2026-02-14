@@ -94,9 +94,9 @@ export class GoogleCalendarClient {
     }
 
     /**
-     * Get busy slots for a specific date
+     * Get busy slots for a specific date (9AM - 7PM, ignoring personal life)
      */
-    async getBusySlots(date: Date): Promise<{ start: Date, end: Date }[]> {
+    async getBusySlots(date: Date): Promise<{ start: Date; end: Date; bookingId?: string }[]> {
         const token = await this.getAccessToken();
 
         const startOfDay = new Date(date);
@@ -123,12 +123,32 @@ export class GoogleCalendarClient {
         );
 
         const data = await response.json();
-        const events: GoogleCalendarEvent[] = data.items || [];
 
-        return events.map(event => ({
-            start: new Date(event.start.dateTime || event.start.date || ''),
-            end: new Date(event.end.dateTime || event.end.date || '')
-        })).filter(slot => !isNaN(slot.start.getTime()) && !isNaN(slot.end.getTime()));
+        if (!data.items) return [];
+
+        return data.items.map((event: any) => {
+            const start = new Date(event.start.dateTime || event.start.date || '');
+            const end = new Date(event.end.dateTime || event.end.date || '');
+
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+                return null; // Filter out invalid dates
+            }
+
+            const result: { start: Date; end: Date; bookingId?: string } = {
+                start: start,
+                end: end
+            };
+
+            // Extract booking ID if present
+            if (event.description) {
+                const match = event.description.match(/Booking ID: (booking-[a-zA-Z0-9-]+)/);
+                if (match) {
+                    result.bookingId = match[1];
+                }
+            }
+
+            return result;
+        }).filter((slot: any) => slot !== null) as { start: Date; end: Date; bookingId?: string }[];
     }
 
     /**

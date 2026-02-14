@@ -82,6 +82,11 @@ export default {
             if (path === '/api/calendar/sync' && method === 'GET') {
                 return json({ message: 'Calendar sync requires environment variables. Configure in Cloudflare dashboard.' });
             }
+
+            // Debug endpoint: test Google Calendar connection
+            if (path === '/api/calendar/test' && method === 'GET') {
+                return handleCalendarTest(env);
+            }
         } catch (error: any) {
             return json({ error: error.message || 'Internal server error' }, 500);
         }
@@ -268,4 +273,87 @@ async function handleWhatsApp(request: Request): Promise<Response> {
     const waLink = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(whatsappMessage)}`;
 
     return json({ success: true, waLink, preview: whatsappMessage });
+}
+
+async function handleCalendarTest(env: Env): Promise<Response> {
+    const diagnostics: any = {
+        step: 'init',
+        hasClientId: !!env.GOOGLE_CLIENT_ID,
+        hasClientSecret: !!env.GOOGLE_CLIENT_SECRET,
+        hasRefreshToken: !!env.GOOGLE_REFRESH_TOKEN,
+        calendarId: env.GOOGLE_CALENDAR_ID || 'NOT SET',
+    };
+
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REFRESH_TOKEN) {
+        diagnostics.error = 'Missing Google credentials. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN in Cloudflare Variables.';
+        return json(diagnostics, 400);
+    }
+
+    // Step 1: Try to get access token
+    try {
+        diagnostics.step = 'token_refresh';
+        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                client_id: env.GOOGLE_CLIENT_ID,
+                client_secret: env.GOOGLE_CLIENT_SECRET,
+                refresh_token: env.GOOGLE_REFRESH_TOKEN,
+                grant_type: 'refresh_token'
+            })
+        });
+
+        const tokenData: any = await tokenResponse.json();
+        diagnostics.tokenStatus = tokenResponse.status;
+        diagnostics.hasAccessToken = !!tokenData.access_token;
+
+        if (!tokenData.access_token) {
+            diagnostics.tokenError = tokenData;
+            return json(diagnostics, 400);
+        }
+
+        // Step 2: Try to create a test event
+        diagnostics.step = 'create_event';
+        const now = new Date();
+        const later = new Date(now.getTime() + 30 * 60000);
+
+        const event = {
+            summary: '🧪 TEST - Salon MOST Calendar Sync',
+            description: 'This is a test event to verify Google Calendar integration. You can delete this.',
+            start: { dateTime: now.toISOString(), timeZone: 'Asia/Colombo' },
+            end: { dateTime: later.toISOString(), timeZone: 'Asia/Colombo' },
+        };
+
+        const calendarId = env.GOOGLE_CALENDAR_ID || 'primary';
+        const eventResponse = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${tokenData.access_token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(event)
+            }
+        );
+
+        const eventData: any = await eventResponse.json();
+        diagnostics.eventStatus = eventResponse.status;
+        diagnostics.eventId = eventData.id;
+        diagnostics.eventLink = eventData.htmlLink;
+
+        if (eventResponse.status === 200) {
+            diagnostics.success = true;
+            diagnostics.message = '✅ Test event created successfully! Check your Google Calendar.';
+        } else {
+            diagnostics.success = false;
+            diagnostics.eventError = eventData;
+        }
+
+    } catch (err: any) {
+        diagnostics.error = err.message;
+        diagnostics.stack = err.stack;
+    }
+
+    return json(diagnostics);
 }

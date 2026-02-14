@@ -186,37 +186,39 @@ export default function AdminPage() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
+        <div className="min-h-screen bg-black text-white flex flex-col md:flex-row">
             {/* Sidebar / Date Picker */}
-            <div className="md:w-80 bg-white border-r p-6 flex flex-col gap-6 h-screen overflow-y-auto sticky top-0">
+            <div className="md:w-80 bg-zinc-900 border-r border-zinc-800 p-6 flex flex-col gap-6 h-screen overflow-y-auto sticky top-0">
                 <div className="flex items-center justify-between">
-                    <h1 className="text-xl font-bold text-black">Admin Panel</h1>
-                    <Button variant="ghost" size="icon" onClick={() => setIsAuthenticated(false)}>
+                    <h1 className="text-xl font-bold text-white">Admin Panel</h1>
+                    <Button variant="ghost" size="icon" onClick={() => setIsAuthenticated(false)} className="text-gray-400 hover:text-white hover:bg-white/10">
                         <LogOut className="w-4 h-4" />
                     </Button>
                 </div>
 
-                <div className="calendar-wrapper custom-calendar">
+                <div className="calendar-wrapper custom-calendar invert-0">
                     <Calendar
                         onChange={(d) => setDate(d as Date)}
                         value={date}
-                        className="rounded-lg border shadow-sm w-full text-black"
+                        className="rounded-lg border border-zinc-700 bg-zinc-900 text-white w-full"
                     />
                     <style dangerouslySetInnerHTML={{
                         __html: `
-                        .custom-calendar .react-calendar { font-family: inherit; border: none; }
-                        .custom-calendar .react-calendar__navigation button { color: black !important; font-weight: bold; }
-                        .custom-calendar .react-calendar__month-view__weekdays__weekday { color: black !important; text-decoration: none; }
-                        .custom-calendar .react-calendar__month-view__days__day { color: black !important; }
+                        .custom-calendar .react-calendar { font-family: inherit; border: none; background: transparent !important; }
+                        .custom-calendar .react-calendar__navigation button { color: white !important; font-weight: bold; }
+                        .custom-calendar .react-calendar__navigation button:enabled:hover,
+                        .custom-calendar .react-calendar__navigation button:enabled:focus { background-color: #3f3f46 !important; }
+                        .custom-calendar .react-calendar__month-view__weekdays__weekday { color: #a1a1aa !important; text-decoration: none; }
+                        .custom-calendar .react-calendar__month-view__days__day { color: white !important; }
                         .custom-calendar .react-calendar__tile:enabled:hover,
-                        .custom-calendar .react-calendar__tile:enabled:focus { background-color: #f3f4f6; color: black !important; }
-                        .custom-calendar .react-calendar__tile--now { background: #e5e7eb !important; color: black !important; }
-                        .custom-calendar .react-calendar__tile--active { background: #000 !important; color: white !important; }
+                        .custom-calendar .react-calendar__tile:enabled:focus { background-color: #3f3f46 !important; color: white !important; }
+                        .custom-calendar .react-calendar__tile--now { background: #d4b106 !important; color: black !important; }
+                        .custom-calendar .react-calendar__tile--active { background: white !important; color: black !important; }
                     `}} />
                 </div>
 
-                <div className="space-y-2">
-                    <h2 className="text-lg font-semibold text-black">Today's Bookings ({selectedDateBookings.length})</h2>
+                <div className="space-y-4">
+                    <h2 className="text-lg font-semibold text-white">Today's Bookings ({selectedDateBookings.length})</h2>
                     {loading ? (
                         <div className="flex justify-center items-center h-24">
                             <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
@@ -226,17 +228,18 @@ export default function AdminPage() {
                     ) : (
                         <div className="space-y-3">
                             {selectedDateBookings.map(booking => (
-                                <Card key={booking.id} className="shadow-sm">
+                                <Card key={booking.id} className="shadow-sm bg-zinc-800 border-zinc-700 text-white">
                                     <CardContent className="p-4 text-sm">
-                                        <p className="font-medium text-black">{booking.client_name}</p>
-                                        <p className="text-gray-600">{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</p>
-                                        <p className="text-gray-600">
+                                        <p className="font-medium text-white">{booking.client_name}</p>
+                                        <p className="text-gray-400">{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</p>
+                                        <p className="text-gray-400">
                                             {services.find(s => s.id === booking.service_id)?.name} with {stylists.find(s => s.id === booking.stylist_id)?.name}
                                         </p>
                                         <div className="flex gap-2 mt-2">
                                             <Button
                                                 variant="outline"
                                                 size="sm"
+                                                className="border-zinc-600 text-zinc-300 hover:bg-zinc-700 hover:text-white"
                                                 onClick={() => {
                                                     setEditingBooking(booking);
                                                     setIsEditOpen(true);
@@ -261,31 +264,31 @@ export default function AdminPage() {
             </div>
 
             {/* Main Content Area */}
-            <div className="flex-1 p-8">
+            <div className="flex-1 p-8 bg-black">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-3xl font-bold text-black">Dashboard</h2>
+                    <h2 className="text-3xl font-bold text-white">Dashboard</h2>
                     <DropdownAdd bookings={bookings} />
                 </div>
 
                 {/* Placeholder for other dashboard content */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {/* Example Card */}
-                    <Card>
+                    <Card className="bg-zinc-900 border-zinc-800">
                         <CardContent className="p-6">
-                            <h3 className="text-lg font-semibold text-black">Total Bookings</h3>
-                            <p className="text-3xl font-bold text-black">{bookings.length}</p>
+                            <h3 className="text-lg font-semibold text-white">Total Bookings</h3>
+                            <p className="text-3xl font-bold text-white">{bookings.length}</p>
                         </CardContent>
                     </Card>
-                    <Card>
+                    <Card className="bg-zinc-900 border-zinc-800">
                         <CardContent className="p-6">
-                            <h3 className="text-lg font-semibold text-black">Confirmed Bookings</h3>
-                            <p className="text-3xl font-bold text-black">{bookings.filter(b => b.status === 'confirmed').length}</p>
+                            <h3 className="text-lg font-semibold text-white">Confirmed Bookings</h3>
+                            <p className="text-3xl font-bold text-white">{bookings.filter(b => b.status === 'confirmed').length}</p>
                         </CardContent>
                     </Card>
-                    <Card>
+                    <Card className="bg-zinc-900 border-zinc-800">
                         <CardContent className="p-6">
-                            <h3 className="text-lg font-semibold text-black">Stylists</h3>
-                            <p className="text-3xl font-bold text-black">{stylists.length}</p>
+                            <h3 className="text-lg font-semibold text-white">Stylists</h3>
+                            <p className="text-3xl font-bold text-white">{stylists.length}</p>
                         </CardContent>
                     </Card>
                 </div>

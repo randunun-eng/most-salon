@@ -43,7 +43,8 @@ export function generateSlotsForStylist(
     stylist: Stylist,
     date: Date,
     serviceDuration: number,
-    bookings: Booking[]
+    bookings: Booking[],
+    blockedRanges: { start: Date; end: Date }[] = []
 ): Date[] {
     const slots: Date[] = [];
     const interval = 15; // 15-minute grid
@@ -78,20 +79,32 @@ export function generateSlotsForStylist(
             break;
         }
 
+        let isBlocked = false;
+
         // Check if slot overlaps with break time
         if (breakStart && breakEnd) {
             if (isOverlapping(slotStart, slotEnd, breakStart, breakEnd)) {
-                currentTime.setMinutes(currentTime.getMinutes() + interval);
-                continue;
+                isBlocked = true;
             }
         }
 
-        // Check if slot overlaps with any existing booking
-        const hasOverlap = bookings.some(booking =>
-            isOverlapping(slotStart, slotEnd, new Date(booking.start_time), new Date(booking.end_time))
-        );
+        // Check internal bookings
+        if (!isBlocked) {
+            const hasBookingOverlap = bookings.some(booking =>
+                isOverlapping(slotStart, slotEnd, new Date(booking.start_time), new Date(booking.end_time))
+            );
+            if (hasBookingOverlap) isBlocked = true;
+        }
 
-        if (!hasOverlap) {
+        // Check external blocked ranges (Google Calendar)
+        if (!isBlocked) {
+            const hasExternalOverlap = blockedRanges.some(range =>
+                isOverlapping(slotStart, slotEnd, range.start, range.end)
+            );
+            if (hasExternalOverlap) isBlocked = true;
+        }
+
+        if (!isBlocked) {
             slots.push(new Date(slotStart));
         }
 
@@ -113,7 +126,8 @@ export function generateSlotsAllStylists(
     stylists: Stylist[],
     date: Date,
     serviceDuration: number,
-    bookingsByStyleist: Map<string, Booking[]>
+    bookingsByStyleist: Map<string, Booking[]>,
+    blockedRanges: { start: Date; end: Date }[] = []
 ): TimeSlot[] {
     const allSlots: TimeSlot[] = [];
 
@@ -121,7 +135,7 @@ export function generateSlotsAllStylists(
         if (!stylist.is_active) continue;
 
         const bookings = bookingsByStyleist.get(stylist.id) || [];
-        const slots = generateSlotsForStylist(stylist, date, serviceDuration, bookings);
+        const slots = generateSlotsForStylist(stylist, date, serviceDuration, bookings, blockedRanges);
 
         for (const slotStart of slots) {
             const slotEnd = new Date(slotStart);

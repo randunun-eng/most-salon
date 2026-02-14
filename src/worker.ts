@@ -56,7 +56,7 @@ export default {
             }
 
             if (path === '/api/availability' && method === 'GET') {
-                return handleAvailability(url);
+                return handleAvailability(url, env);
             }
 
             if (path === '/api/bookings' && method === 'GET') {
@@ -101,7 +101,7 @@ function json(data: any, status = 200): Response {
 
 // --- API Handlers ---
 
-async function handleAvailability(url: URL): Promise<Response> {
+async function handleAvailability(url: URL, env: Env): Promise<Response> {
     const dateStr = url.searchParams.get('date');
     const serviceId = url.searchParams.get('serviceId');
     const stylistId = url.searchParams.get('stylistId');
@@ -117,22 +117,24 @@ async function handleAvailability(url: URL): Promise<Response> {
         return json({ error: 'Service not found' }, 404);
     }
 
+    // Fetch busy slots from Google Calendar
+    let blockedRanges: { start: Date, end: Date }[] = [];
+    try {
+        if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
+            const calendar = createGoogleCalendarClient(env);
+            blockedRanges = await calendar.getBusySlots(date);
+        }
+    } catch (e) {
+        console.error('Failed to fetch calendar slots:', e);
+        // Continue without external blocking if API fails
+    }
+
     if (stylistId && stylistId !== 'any') {
         const stylist = await getStylist(stylistId);
         if (!stylist) return json({ error: 'Stylist not found' }, 404);
 
-        const cached = await getCachedAvailability(stylistId, date);
-        if (cached) {
-            return json({
-                slots: filterFutureSlots(cached).map(s => s.toISOString()),
-                cached: true,
-                stylist: { id: stylist.id, name: stylist.name },
-            });
-        }
-
         const bookings = await getBookingsForStylist(stylistId, date);
-        const slots = generateSlotsForStylist(stylist, date, service.duration_minutes, bookings);
-        await setCachedAvailability(stylistId, date, slots);
+        const slots = generateSlotsForStylist(stylist, date, service.duration_minutes, bookings, blockedRanges);
 
         return json({
             slots: filterFutureSlots(slots).map(s => s.toISOString()),
@@ -148,7 +150,7 @@ async function handleAvailability(url: URL): Promise<Response> {
         bookingsByStyleist.set(stylist.id, await getBookingsForStylist(stylist.id, date));
     }
 
-    const allSlots = generateSlotsAllStylists(stylists, date, service.duration_minutes, bookingsByStyleist);
+    const allSlots = generateSlotsAllStylists(stylists, date, service.duration_minutes, bookingsByStyleist, blockedRanges);
     const futureSlots = allSlots.filter(slot => slot.start > new Date());
 
     return json({
@@ -192,7 +194,7 @@ async function handleCreateBooking(request: Request, env: Env): Promise<Response
     try {
         if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
             const calendar = createGoogleCalendarClient(env);
-            await calendar.createEvent(booking, service.name);
+            await calendar.createEvent(booking, service.name, stylist.name);
         }
     } catch (calendarError) {
         console.error('Google Calendar sync failed:', calendarError);

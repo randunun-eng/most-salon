@@ -6,12 +6,14 @@ interface GoogleCalendarEvent {
     summary: string;
     description?: string;
     start: {
-        dateTime: string;
-        timeZone: string;
+        dateTime?: string;
+        date?: string;
+        timeZone?: string;
     };
     end: {
-        dateTime: string;
-        timeZone: string;
+        dateTime?: string;
+        date?: string;
+        timeZone?: string;
     };
     status: 'confirmed' | 'tentative' | 'cancelled';
     updated: string;
@@ -38,7 +40,7 @@ export class GoogleCalendarClient {
      */
     private async getAccessToken(): Promise<string> {
         if (this.accessToken && Date.now() < this.tokenExpiry) {
-            return this.accessToken;
+            return this.accessToken as string;
         }
 
         const response = await fetch('https://oauth2.googleapis.com/token', {
@@ -54,9 +56,9 @@ export class GoogleCalendarClient {
 
         const data = await response.json();
         this.accessToken = data.access_token;
-        this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000; // 1 min buffer
+        this.tokenExpiry = Date.now() + ((data.expires_in || 3600) * 1000) - 60000; // 1 min buffer
 
-        return this.accessToken;
+        return this.accessToken || '';
     }
 
     /**
@@ -92,14 +94,52 @@ export class GoogleCalendarClient {
     }
 
     /**
+     * Get busy slots for a specific date
+     */
+    async getBusySlots(date: Date): Promise<{ start: Date, end: Date }[]> {
+        const token = await this.getAccessToken();
+
+        const startOfDay = new Date(date);
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const endOfDay = new Date(date);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        const params = new URLSearchParams({
+            timeMin: startOfDay.toISOString(),
+            timeMax: endOfDay.toISOString(),
+            singleEvents: 'true',
+            orderBy: 'startTime'
+        });
+
+        const response = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${this.config.calendarId}/events?${params}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/json'
+                }
+            }
+        );
+
+        const data = await response.json();
+        const events: GoogleCalendarEvent[] = data.items || [];
+
+        return events.map(event => ({
+            start: new Date(event.start.dateTime || event.start.date || ''),
+            end: new Date(event.end.dateTime || event.end.date || '')
+        })).filter(slot => !isNaN(slot.start.getTime()) && !isNaN(slot.end.getTime()));
+    }
+
+    /**
      * Create event in Google Calendar
      */
-    async createEvent(booking: Booking, serviceName: string): Promise<string> {
+    async createEvent(booking: Booking, serviceName: string, stylistName: string): Promise<string> {
         const token = await this.getAccessToken();
 
         const event = {
-            summary: `${serviceName} - ${booking.client_name}`,
-            description: `Phone: ${booking.client_phone}\nEmail: ${booking.client_email}\nBooking ID: ${booking.id}`,
+            summary: `${serviceName} (${stylistName}) - ${booking.client_name}`,
+            description: `Client: ${booking.client_name}\nPhone: ${booking.client_phone}\nEmail: ${booking.client_email}\nStylist: ${stylistName}\nBooking ID: ${booking.id}`,
             start: {
                 dateTime: new Date(booking.start_time).toISOString(),
                 timeZone: 'Asia/Colombo'

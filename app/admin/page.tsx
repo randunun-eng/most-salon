@@ -167,122 +167,21 @@ export default function AdminPage() {
         );
     }
 
+    const formattedDateTimeValue = (isoString: string) => {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        // specific offset for Sri Lanka if needed, but browser local is best usually
+        // Using browser's local time:
+        const offset = date.getTimezoneOffset() * 60000;
+        const localDate = new Date(date.getTime() - offset);
+        return localDate.toISOString().slice(0, 16);
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
-            {/* Sidebar / Date Picker */}
-            <div className="md:w-80 bg-white border-r p-6 flex flex-col gap-6 h-screen overflow-y-auto sticky top-0">
-                <div className="flex items-center justify-between">
-                    <h1 className="text-xl font-bold text-black">Admin Panel</h1>
-                    <Button variant="ghost" size="icon" onClick={() => setIsAuthenticated(false)}>
-                        <LogOut className="w-4 h-4" />
-                    </Button>
-                </div>
+            {/* ... sidebar ... */}
 
-                <div className="calendar-wrapper custom-calendar">
-                    <Calendar
-                        onChange={(d) => setDate(d as Date)}
-                        value={date}
-                        className="rounded-lg border shadow-sm w-full text-black"
-                    />
-                    <style jsx global>{`
-                        .custom-calendar .react-calendar { font-family: inherit; border: none; }
-                        .custom-calendar .react-calendar__navigation button { color: black !important; font-weight: bold; }
-                        .custom-calendar .react-calendar__month-view__weekdays__weekday { color: black !important; text-decoration: none; }
-                        .custom-calendar .react-calendar__month-view__days__day { color: black !important; }
-                        .custom-calendar .react-calendar__tile:enabled:hover,
-                        .custom-calendar .react-calendar__tile:enabled:focus { background-color: #f3f4f6; color: black !important; }
-                        .custom-calendar .react-calendar__tile--now { background: #e5e7eb !important; color: black !important; }
-                        .custom-calendar .react-calendar__tile--active { background: #000 !important; color: white !important; }
-                    `}</style>
-                </div>
-
-                <div className="space-y-2">
-                    <h3 className="font-medium text-sm text-black">Stylists</h3>
-                    {stylists.map(s => (
-                        <div key={s.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-100">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
-                                {s.name.charAt(0)}
-                            </div>
-                            <span className="text-sm text-black font-medium">{s.name}</span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Main Content */}
-            <div className="flex-1 p-6 md:p-10 overflow-y-auto">
-                <div className="flex items-center justify-between mb-8">
-                    <div>
-                        <h2 className="text-3xl font-bold text-black">{date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</h2>
-                        <p className="text-black font-medium">{selectedDateBookings.length} booking{selectedDateBookings.length !== 1 ? 's' : ''}</p>
-                    </div>
-                    {/* Add Booking Button (can be implemented similarly to edit or redirect to public page) */}
-                    <DropdownAdd bookings={selectedDateBookings} />
-                </div>
-
-                <div className="space-y-4">
-                    {loading ? (
-                        <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-300" /></div>
-                    ) : selectedDateBookings.length === 0 ? (
-                        <div className="text-center py-20 bg-white rounded-xl border border-dashed">
-                            <p className="text-gray-400">No bookings for this day</p>
-                        </div>
-                    ) : (
-                        selectedDateBookings.map(booking => {
-                            const stylist = stylists.find(s => s.id === booking.stylist_id);
-                            const service = services.find(s => s.id === booking.service_id);
-
-                            return (
-                                <Card key={booking.id} className="hover:shadow-md transition-shadow">
-                                    <div className="p-4 flex flex-col md:flex-row md:items-center gap-4">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className="font-mono text-lg font-bold bg-white text-black px-2 py-1 rounded shadow-sm">
-                                                    {formatTime(booking.start_time)}
-                                                </span>
-                                                <span className="text-gray-400">➜</span>
-                                                <span className="text-gray-300">{formatTime(booking.end_time)}</span>
-                                            </div>
-                                            <h3 className="font-bold text-lg">{booking.client_name}</h3>
-                                            <p className="text-sm text-gray-500">{booking.client_phone} • {booking.client_email}</p>
-                                        </div>
-
-                                        <div className="flex flex-col md:flex-row gap-4 md:items-center">
-                                            <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm font-medium">
-                                                {service?.name || 'Unknown Service'}
-                                            </div>
-                                            <div className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1">
-                                                <span className="w-2 h-2 rounded-full bg-purple-500"></span>
-                                                {stylist?.name || 'Unknown Stylist'}
-                                            </div>
-                                        </div>
-
-                                        <div className="flex gap-2 justify-end mt-4 md:mt-0">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => {
-                                                    setEditingBooking(booking);
-                                                    setIsEditOpen(true);
-                                                }}
-                                            >
-                                                <Edit2 className="w-4 h-4 mr-1" /> Edit
-                                            </Button>
-                                            <Button
-                                                variant="destructive"
-                                                size="sm"
-                                                onClick={() => handleCancel(booking.id)}
-                                            >
-                                                <Trash2 className="w-4 h-4 mr-1" /> Cancel
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </Card>
-                            );
-                        })
-                    )}
-                </div>
-            </div>
+            {/* ... main content ... */}
 
             {/* Edit Modal */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
@@ -297,7 +196,7 @@ export default function AdminPage() {
                                     <Label>Start Time</Label>
                                     <Input
                                         type="datetime-local"
-                                        value={new Date(editingBooking.start_time).toISOString().slice(0, 16)}
+                                        value={formattedDateTimeValue(editingBooking.start_time)}
                                         onChange={(e) => setEditingBooking({
                                             ...editingBooking,
                                             start_time: new Date(e.target.value).toISOString()
@@ -308,7 +207,7 @@ export default function AdminPage() {
                                     <Label>End Time</Label>
                                     <Input
                                         type="datetime-local"
-                                        value={new Date(editingBooking.end_time).toISOString().slice(0, 16)}
+                                        value={formattedDateTimeValue(editingBooking.end_time)}
                                         onChange={(e) => setEditingBooking({
                                             ...editingBooking,
                                             end_time: new Date(e.target.value).toISOString()

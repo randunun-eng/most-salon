@@ -100,10 +100,10 @@ export class GoogleCalendarClient {
         const token = await this.getAccessToken();
 
         const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
+        startOfDay.setHours(9, 0, 0, 0); // 9:00 AM
 
         const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
+        endOfDay.setHours(19, 0, 0, 0); // 7:00 PM
 
         const params = new URLSearchParams({
             timeMin: startOfDay.toISOString(),

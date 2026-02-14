@@ -132,6 +132,29 @@ export async function updateBookingStatus(
     return getBooking(db, id);
 }
 
+export async function updateBooking(
+    db: D1Database,
+    id: string,
+    updates: Partial<Omit<Booking, 'id' | 'created_at'>>
+): Promise<Booking | null> {
+    const allowed = ['client_name', 'client_email', 'client_phone', 'service_id', 'stylist_id', 'start_time', 'end_time', 'status'];
+    const fields = Object.keys(updates).filter(key => allowed.includes(key));
+
+    if (fields.length === 0) return null;
+
+    const setClause = fields.map(field => `${field} = ?`).join(', ');
+    const values = fields.map(field => {
+        const val = (updates as any)[field];
+        return val instanceof Date ? val.toISOString() : val;
+    });
+
+    await db.prepare(`UPDATE bookings SET ${setClause} WHERE id = ?`)
+        .bind(...values, id)
+        .run();
+
+    return getBooking(db, id);
+}
+
 export async function updateBookingTime(
     db: D1Database,
     id: string,

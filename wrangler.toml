@@ -10,3 +10,6 @@ binding = "ASSETS"
 binding = "DB"
 database_name = "most-salon-db"
 database_id = "c4dc8d6f-372c-4e8b-a83b-0793e1a8ad22"
+
+[vars]
+GOOGLE_CALENDAR_ID = "419547e75f51a06bfb363b7dc790a1d437e81b9931ce2eb444c7f9c5d69d7381@group.calendar.google.com"

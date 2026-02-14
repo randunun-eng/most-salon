@@ -16,6 +16,7 @@ import {
     generateSlotsAllStylists,
     filterFutureSlots
 } from '../lib/slot-engine';
+import { createGoogleCalendarClient } from '../lib/google-calendar';
 
 interface Env {
     ASSETS: { fetch: (request: Request) => Promise<Response> };
@@ -63,11 +64,11 @@ export default {
             }
 
             if (path === '/api/bookings' && method === 'POST') {
-                return handleCreateBooking(request);
+                return handleCreateBooking(request, env);
             }
 
             if (path === '/api/bookings' && method === 'PATCH') {
-                return handleUpdateBooking(request);
+                return handleUpdateBooking(request, env);
             }
 
             if (path === '/api/chat' && method === 'POST') {
@@ -162,7 +163,7 @@ async function handleAvailability(url: URL): Promise<Response> {
     });
 }
 
-async function handleCreateBooking(request: Request): Promise<Response> {
+async function handleCreateBooking(request: Request, env: Env): Promise<Response> {
     const body: any = await request.json();
     const { client_name, client_email, client_phone, service_id, stylist_id, start_time } = body;
 
@@ -172,6 +173,9 @@ async function handleCreateBooking(request: Request): Promise<Response> {
 
     const service = await getService(service_id);
     if (!service) return json({ error: 'Service not found' }, 404);
+
+    const stylist = await getStylist(stylist_id);
+    if (!stylist) return json({ error: 'Stylist not found' }, 404);
 
     const startTime = new Date(start_time);
     const endTime = new Date(startTime);
@@ -184,10 +188,27 @@ async function handleCreateBooking(request: Request): Promise<Response> {
         status: 'confirmed',
     });
 
+    // Sync to Google Calendar if credentials are configured
+    try {
+        if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
+            const calendar = createGoogleCalendarClient(env);
+            await calendar.createEvent({
+                summary: `${service.name} - ${client_name}`,
+                description: `Client: ${client_name}\nPhone: ${client_phone}\nEmail: ${client_email}\nStylist: ${stylist.name}\nBooking ID: ${booking.id}`,
+                start: { dateTime: startTime.toISOString(), timeZone: 'Asia/Colombo' },
+                end: { dateTime: endTime.toISOString(), timeZone: 'Asia/Colombo' },
+                attendees: [{ email: client_email }],
+            });
+        }
+    } catch (calendarError) {
+        console.error('Google Calendar sync failed:', calendarError);
+        // Don't fail the booking if calendar sync fails
+    }
+
     return json(booking, 201);
 }
 
-async function handleUpdateBooking(request: Request): Promise<Response> {
+async function handleUpdateBooking(request: Request, env: Env): Promise<Response> {
     const body: any = await request.json();
     const { id, status } = body;
 

@@ -18,8 +18,19 @@ export function isOverlapping(
  */
 export function parseTimeWithDate(date: Date, timeStr: string): Date {
     const [hours, minutes] = timeStr.split(':').map(Number);
+
+    // Create a date object at midnight UTC for the given date
     const result = new Date(date);
-    result.setHours(hours, minutes, 0, 0);
+    result.setUTCHours(0, 0, 0, 0);
+
+    // SLT is UTC + 5.5 hours (330 minutes)
+    // We want the resulting Date object to represent that local SLT time in UTC
+    const sltOffsetMinutes = 330; // 5 * 60 + 30
+    const targetTimeMinutes = hours * 60 + minutes;
+
+    // Subtract offset to get UTC time
+    result.setUTCMinutes(targetTimeMinutes - sltOffsetMinutes);
+
     return result;
 }
 

@@ -79,15 +79,18 @@ export default function AdminPage() {
                 fetch('/api/services')
             ]);
 
+            if (!bRes.ok || !sRes.ok || !svRes.ok) throw new Error('Failed to fetch data');
+
             const bData = await bRes.json();
             const sData = await sRes.json();
             const svData = await svRes.json();
 
-            setBookings(bData);
-            setStylists(sData);
-            setServices(svData);
+            setBookings(Array.isArray(bData) ? bData : []);
+            setStylists(Array.isArray(sData) ? sData : []);
+            setServices(Array.isArray(svData) ? svData : []);
         } catch (err) {
             console.error(err);
+            // setError('Failed to load dashboard data'); // optional: show global error
         } finally {
             setLoading(false);
         }
@@ -95,6 +98,7 @@ export default function AdminPage() {
 
     // Filter bookings for selected date
     const selectedDateBookings = bookings.filter(b => {
+        if (!b || !b.start_time) return false;
         const d = new Date(b.start_time);
         return d.toDateString() === date.toDateString() && b.status !== 'cancelled';
     }).sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
@@ -169,19 +173,123 @@ export default function AdminPage() {
 
     const formattedDateTimeValue = (isoString: string) => {
         if (!isoString) return '';
-        const date = new Date(isoString);
-        // specific offset for Sri Lanka if needed, but browser local is best usually
-        // Using browser's local time:
-        const offset = date.getTimezoneOffset() * 60000;
-        const localDate = new Date(date.getTime() - offset);
-        return localDate.toISOString().slice(0, 16);
+        try {
+            const date = new Date(isoString);
+            // specific offset for Sri Lanka if needed, but browser local is best usually
+            // Using browser's local time:
+            const offset = date.getTimezoneOffset() * 60000;
+            const localDate = new Date(date.getTime() - offset);
+            return localDate.toISOString().slice(0, 16);
+        } catch (e) {
+            return '';
+        }
     };
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
-            {/* ... sidebar ... */}
+            {/* Sidebar / Date Picker */}
+            <div className="md:w-80 bg-white border-r p-6 flex flex-col gap-6 h-screen overflow-y-auto sticky top-0">
+                <div className="flex items-center justify-between">
+                    <h1 className="text-xl font-bold text-black">Admin Panel</h1>
+                    <Button variant="ghost" size="icon" onClick={() => setIsAuthenticated(false)}>
+                        <LogOut className="w-4 h-4" />
+                    </Button>
+                </div>
 
-            {/* ... main content ... */}
+                <div className="calendar-wrapper custom-calendar">
+                    <Calendar
+                        onChange={(d) => setDate(d as Date)}
+                        value={date}
+                        className="rounded-lg border shadow-sm w-full text-black"
+                    />
+                    <style dangerouslySetInnerHTML={{
+                        __html: `
+                        .custom-calendar .react-calendar { font-family: inherit; border: none; }
+                        .custom-calendar .react-calendar__navigation button { color: black !important; font-weight: bold; }
+                        .custom-calendar .react-calendar__month-view__weekdays__weekday { color: black !important; text-decoration: none; }
+                        .custom-calendar .react-calendar__month-view__days__day { color: black !important; }
+                        .custom-calendar .react-calendar__tile:enabled:hover,
+                        .custom-calendar .react-calendar__tile:enabled:focus { background-color: #f3f4f6; color: black !important; }
+                        .custom-calendar .react-calendar__tile--now { background: #e5e7eb !important; color: black !important; }
+                        .custom-calendar .react-calendar__tile--active { background: #000 !important; color: white !important; }
+                    `}} />
+                </div>
+
+                <div className="space-y-2">
+                    <h2 className="text-lg font-semibold text-black">Today's Bookings ({selectedDateBookings.length})</h2>
+                    {loading ? (
+                        <div className="flex justify-center items-center h-24">
+                            <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+                        </div>
+                    ) : selectedDateBookings.length === 0 ? (
+                        <p className="text-gray-500 text-sm">No bookings for this date.</p>
+                    ) : (
+                        <div className="space-y-3">
+                            {selectedDateBookings.map(booking => (
+                                <Card key={booking.id} className="shadow-sm">
+                                    <CardContent className="p-4 text-sm">
+                                        <p className="font-medium text-black">{booking.client_name}</p>
+                                        <p className="text-gray-600">{formatTime(booking.start_time)} - {formatTime(booking.end_time)}</p>
+                                        <p className="text-gray-600">
+                                            {services.find(s => s.id === booking.service_id)?.name} with {stylists.find(s => s.id === booking.stylist_id)?.name}
+                                        </p>
+                                        <div className="flex gap-2 mt-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => {
+                                                    setEditingBooking(booking);
+                                                    setIsEditOpen(true);
+                                                }}
+                                            >
+                                                <Edit2 className="w-4 h-4 mr-1" /> Edit
+                                            </Button>
+                                            <Button
+                                                variant="destructive"
+                                                size="sm"
+                                                onClick={() => handleCancel(booking.id)}
+                                            >
+                                                <Trash2 className="w-4 h-4 mr-1" /> Cancel
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="flex-1 p-8">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-3xl font-bold text-black">Dashboard</h2>
+                    <DropdownAdd bookings={bookings} />
+                </div>
+
+                {/* Placeholder for other dashboard content */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {/* Example Card */}
+                    <Card>
+                        <CardContent className="p-6">
+                            <h3 className="text-lg font-semibold text-black">Total Bookings</h3>
+                            <p className="text-3xl font-bold text-black">{bookings.length}</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardContent className="p-6">
+                            <h3 className="text-lg font-semibold text-black">Confirmed Bookings</h3>
+                            <p className="text-3xl font-bold text-black">{bookings.filter(b => b.status === 'confirmed').length}</p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardContent className="p-6">
+                            <h3 className="text-lg font-semibold text-black">Stylists</h3>
+                            <p className="text-3xl font-bold text-black">{stylists.length}</p>
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
 
             {/* Edit Modal */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>

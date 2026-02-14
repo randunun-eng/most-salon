@@ -50,3 +50,5 @@ OAUTH_SETUP_COMPLETE.md
 *.credentials.json
 .env.local
 .env.production
+
+.dev.vars

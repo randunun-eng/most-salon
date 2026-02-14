@@ -182,8 +182,18 @@ export default function AdminPage() {
                     <Calendar
                         onChange={(d) => setDate(d as Date)}
                         value={date}
-                        className="rounded-lg border shadow-sm w-full"
+                        className="rounded-lg border shadow-sm w-full text-black"
                     />
+                    <style jsx global>{`
+                        .custom-calendar .react-calendar { font-family: inherit; border: none; }
+                        .custom-calendar .react-calendar__navigation button { color: black !important; font-weight: bold; }
+                        .custom-calendar .react-calendar__month-view__weekdays__weekday { color: black !important; text-decoration: none; }
+                        .custom-calendar .react-calendar__month-view__days__day { color: black !important; }
+                        .custom-calendar .react-calendar__tile:enabled:hover,
+                        .custom-calendar .react-calendar__tile:enabled:focus { background-color: #f3f4f6; color: black !important; }
+                        .custom-calendar .react-calendar__tile--now { background: #e5e7eb !important; color: black !important; }
+                        .custom-calendar .react-calendar__tile--active { background: #000 !important; color: white !important; }
+                    `}</style>
                 </div>
 
                 <div className="space-y-2">
@@ -227,7 +237,7 @@ export default function AdminPage() {
                                     <div className="p-4 flex flex-col md:flex-row md:items-center gap-4">
                                         <div className="flex-1">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <span className="font-mono text-lg font-bold bg-gray-100 text-black px-2 py-1 rounded">
+                                                <span className="font-mono text-lg font-bold bg-white text-black px-2 py-1 rounded shadow-sm">
                                                     {formatTime(booking.start_time)}
                                                 </span>
                                                 <span className="text-gray-400">➜</span>

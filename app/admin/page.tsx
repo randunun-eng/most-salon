@@ -227,11 +227,11 @@ export default function AdminPage() {
                                     <div className="p-4 flex flex-col md:flex-row md:items-center gap-4">
                                         <div className="flex-1">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <span className="font-mono text-lg font-bold bg-gray-100 px-2 py-1 rounded">
+                                                <span className="font-mono text-lg font-bold bg-gray-100 text-black px-2 py-1 rounded">
                                                     {formatTime(booking.start_time)}
                                                 </span>
                                                 <span className="text-gray-400">➜</span>
-                                                <span className="text-gray-500">{formatTime(booking.end_time)}</span>
+                                                <span className="text-gray-300">{formatTime(booking.end_time)}</span>
                                             </div>
                                             <h3 className="font-bold text-lg">{booking.client_name}</h3>
                                             <p className="text-sm text-gray-500">{booking.client_phone} • {booking.client_email}</p>

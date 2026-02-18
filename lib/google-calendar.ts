@@ -55,6 +55,12 @@ export class GoogleCalendarClient {
         });
 
         const data = await response.json();
+
+        if (!response.ok || data.error) {
+            console.error('Failed to refresh Google access token:', data);
+            throw new Error(`Google OAuth error: ${data.error_description || data.error || response.statusText}`);
+        }
+
         this.accessToken = data.access_token;
         this.tokenExpiry = Date.now() + ((data.expires_in || 3600) * 1000) - 60000; // 1 min buffer
 
@@ -90,6 +96,12 @@ export class GoogleCalendarClient {
         );
 
         const data = await response.json();
+
+        if (!response.ok) {
+            console.error('Failed to fetch events:', data);
+            return [];
+        }
+
         return data.items || [];
     }
 
@@ -123,6 +135,11 @@ export class GoogleCalendarClient {
         );
 
         const data = await response.json();
+
+        if (!response.ok) {
+            console.error('Failed to fetch busy slots:', data);
+            return [];
+        }
 
         if (!data.items) return [];
 
@@ -171,6 +188,8 @@ export class GoogleCalendarClient {
             status: booking.status === 'confirmed' ? 'confirmed' : 'tentative'
         };
 
+        console.log('Creating GCal event:', JSON.stringify(event));
+
         const response = await fetch(
             `https://www.googleapis.com/calendar/v3/calendars/${this.config.calendarId}/events`,
             {
@@ -184,6 +203,12 @@ export class GoogleCalendarClient {
         );
 
         const data = await response.json();
+
+        if (!response.ok) {
+            console.error('Failed to create GCal event:', data);
+            throw new Error(`GCal Error: ${JSON.stringify(data.error)}`);
+        }
+
         return data.id;
     }
 
@@ -239,7 +264,9 @@ export class GoogleCalendarClient {
         );
 
         if (!updateRes.ok) {
-            console.error('Failed to update GCal event', await updateRes.text());
+            const errorText = await updateRes.text();
+            console.error('Failed to update GCal event', errorText);
+            throw new Error(`GCal Update Error: ${errorText}`);
         }
     }
 
@@ -264,19 +291,25 @@ export class GoogleCalendarClient {
 
         if (!event) return;
 
-        await fetch(
+        const deleteRes = await fetch(
             `https://www.googleapis.com/calendar/v3/calendars/${this.config.calendarId}/events/${event.id}`,
             {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${token}` }
             }
         );
+
+        if (!deleteRes.ok) {
+            const errorText = await deleteRes.text();
+            console.error('Failed to delete GCal event', errorText);
+            throw new Error(`GCal Delete Error: ${errorText}`);
+        }
     }
 
     /**
      * Watch calendar for changes (webhook)
      */
-    async watchCalendar(webhookUrl: string): Promise<string> {
+    async watchCalendar(webhookUrl: string, channelId: string): Promise<string> {
         const token = await this.getAccessToken();
 
         const response = await fetch(
@@ -288,7 +321,7 @@ export class GoogleCalendarClient {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    id: `salon-most-${Date.now()}`,
+                    id: channelId,
                     type: 'web_hook',
                     address: webhookUrl,
                     expiration: Date.now() + (7 * 24 * 60 * 60 * 1000) // 7 days

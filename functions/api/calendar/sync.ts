@@ -1,67 +1,58 @@
+// functions/api/calendar/sync.ts
+import { D1Database } from '../../../lib/db-types';
 import { createGoogleCalendarClient } from '../../../lib/google-calendar';
 import { analyzeEvent } from '../../../lib/calendar-ai';
-import { getBookings, createBooking, updateBookingStatus, getService } from '../../../lib/database';
+import { getBookings, createBooking, updateBookingStatus } from '../../../lib/database';
 
 export const onRequestGet: PagesFunction = async (context) => {
+    const db = context.env.DB as D1Database;
+
     try {
-        const env = context.env;
-        const calendar = createGoogleCalendarClient(env);
-        const events = await calendar.getEvents();
-        const dbBookings = await getBookings();
+        const gcal = createGoogleCalendarClient(context.env);
+        const events = await gcal.getEvents();
+        const dbBookings = await getBookings(db);
 
         let syncedCount = 0;
-        let newBookings = [];
+        const newBookings = [];
 
         for (const event of events) {
-            // Check if event already exists in DB (by ID description check or fuzzy match)
-            // Simplified logic: Check if we have a booking at this time for this stylist
-            // Actually, we need to parse the event first to know who it is for.
+            if (event.status === 'cancelled') continue;
 
-            // Analyze event with AI
-            const analysis = await analyzeEvent(
-                event.summary,
-                event.description || '',
-                env
-            );
+            // Skip events we created (they have "Booking ID:" in description)
+            if (event.description?.includes('Booking ID:')) continue;
 
-            if (!analysis) {
-                console.log('Skipping unanalyzable event:', event.summary);
-                continue;
-            }
+            const analysis = await analyzeEvent(event.summary, event.description || '', context.env);
+            if (!analysis || analysis.confidence < 0.7) continue;
 
-            // Check for existing booking
+            const eventStart = event.start.dateTime || event.start.date || '';
             const existing = dbBookings.find(b =>
-                (b.client_email === analysis.clientEmail || b.client_phone === analysis.clientPhone) &&
-                Math.abs(new Date(b.start_time).getTime() - new Date(event.start.dateTime).getTime()) < 60000 // within 1 min
+                (b.client_phone === analysis.clientPhone) &&
+                Math.abs(new Date(b.start_time).getTime() - new Date(eventStart).getTime()) < 60000
             );
 
             if (existing) {
-                // Update status if changed
                 if (existing.status !== 'confirmed' && event.status === 'confirmed') {
-                    await updateBookingStatus(existing.id, 'confirmed');
+                    await updateBookingStatus(db, existing.id, 'confirmed');
                     syncedCount++;
                 }
                 continue;
             }
 
-            // Create new booking from Calendar Event
-            if (analysis.confidence > 0.7) {
-                const start = new Date(event.start.dateTime);
-                const end = new Date(event.end.dateTime);
+            if (!event.start.dateTime || !event.end.dateTime) continue;
 
-                const newBooking = await createBooking({
-                    client_name: analysis.clientName || 'Calendar Guest',
-                    client_email: analysis.clientEmail || 'no-email@example.com',
-                    client_phone: analysis.clientPhone || '0000000000',
-                    service_id: analysis.serviceId,
-                    stylist_id: analysis.stylistId || 'stylist-1',
-                    start_time: start,
-                    end_time: end,
-                    status: event.status === 'confirmed' ? 'confirmed' : 'pending'
-                });
-                newBookings.push(newBooking);
-                syncedCount++;
-            }
+            const newBooking = await createBooking(db, {
+                client_name: analysis.clientName || 'Calendar Guest',
+                client_email: '',
+                client_phone: analysis.clientPhone || '',
+                service_id: analysis.serviceId || '',
+                stylist_id: analysis.stylistId || '',
+                start_time: new Date(event.start.dateTime),
+                end_time: new Date(event.end.dateTime),
+                status: event.status === 'confirmed' ? 'confirmed' : 'pending'
+            });
+
+            newBookings.push(newBooking);
+            syncedCount++;
         }
 
         return Response.json({
@@ -73,9 +64,6 @@ export const onRequestGet: PagesFunction = async (context) => {
 
     } catch (error) {
         console.error('Sync Error:', error);
-        return Response.json(
-            { error: 'Calendar sync failed', details: error },
-            { status: 500 }
-        );
+        return Response.json({ error: 'Calendar sync failed', details: String(error) }, { status: 500 });
     }
 };

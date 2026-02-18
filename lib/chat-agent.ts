@@ -80,7 +80,7 @@ RULES:
 - If a slot is busy, say so naturally and suggest nearby times.
 - When you have all 4 details (service, stylist, date/time, name + phone), summarise them warmly.
 - If [SYSTEM: BOOKING SUCCESSFULLY CREATED], say "You're all booked! See you then." and include any WhatsApp link provided.
-- If [SYSTEM: NO BOOKING...], say "Let me just check that for you..." and continue gathering info.
+- If [SYSTEM: No booking created yet], continue the conversation naturally — do NOT repeat "I am checking". Just ask for whatever is still missing.
 
 Today: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })} (Colombo time)
 `;
@@ -92,7 +92,7 @@ Today: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Colombo', weekday:
                 ...history.slice(-6), // Slightly more context
                 { role: 'user', content: userMessage }
             ],
-            max_tokens: 300
+            max_tokens: 500
         });
 
         return aiResponse.response || "I'm having trouble connecting to the salon schedule right now. Please try again in a moment.";
@@ -141,27 +141,28 @@ export async function extractBookingIntent(
         const services = await getServices(db);
         const stylists = await getStylists(db, true);
 
-        const analysisPrompt = `Analyze the conversation and determine if a booking is REAL and FINALIZED.
-Current Date: ${new Date().toISOString()} (Asia/Colombo)
+        const now = new Date();
+        const todayStr = now.toLocaleDateString('en-US', { timeZone: 'Asia/Colombo', year: 'numeric', month: '2-digit', day: '2-digit' });
+        const analysisPrompt = `Analyze this salon booking conversation and extract booking details if all are present.
 
-Available Services:
+Today's date: ${now.toISOString().split('T')[0]} (${todayStr} in Colombo, UTC+5:30)
+
+Available Services (match by name, return the ID):
 ${services.map(s => `ID: ${s.id}, Name: ${s.name}`).join('\n')}
 
-Available Stylists:
+Available Stylists (match by first name or full name, return the ID):
 ${stylists.map(s => `ID: ${s.id}, Name: ${s.name}`).join('\n')}
 
-Look for these details in the HISTORY:
-1. Service ID (If the AI suggested a service like "haircut" and the user said "yes" or provided time, use that ID)
-2. Stylist ID (If "any" or unspecified, use "stylist-1" as fallback)
-3. Date and Time (Must be a specific ISO-like string or human description we can parse)
-4. Name and Phone (The user must have provided these)
+INSTRUCTIONS:
+- Set "ready": true ONLY when ALL of these are confirmed: service, stylist, date+time, client name, phone number.
+- For dateTime: convert natural language like "today at 3:50pm" to ISO format using today's date above. "Today" = ${now.toISOString().split('T')[0]}. Use 24-hour time and Asia/Colombo timezone offset (+05:30).
+- For stylist: match partial names (e.g. "Sarah" → Sarah Johnson). If user said "any", use the first stylist's ID as fallback.
+- If the AI assistant summarised all details and the user replied "yes" or confirmed, treat it as ready.
 
-SCENARIO: If the AI said "I've booked you..." and the user then provided their name/phone, that means the booking is now COMPLETE.
-
-Return strictly JSON:
+Return ONLY this JSON (no explanation):
 {
   "ready": true/false,
-  "serviceId": "...", 
+  "serviceId": "...",
   "stylistId": "...",
   "dateTime": "YYYY-MM-DDTHH:mm:00",
   "name": "...",

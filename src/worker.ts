@@ -743,7 +743,7 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
 
         // CRITICAL: If no booking was created, ensure AI knows it CANNOT confirm.
         if (!bookingStatusContext.includes('BOOKING SUCCESSFULLY CREATED')) {
-            bookingStatusContext += "\n[SYSTEM: NO BOOKING HAS BEEN MADE YET. DO NOT SAY 'CONFIRMED' OR 'I HAVE BOOKED'. You must say 'I am checking...' or ask for more details.]";
+            bookingStatusContext += "\n[SYSTEM: No booking created yet. Continue gathering any missing details naturally. Do NOT say 'I am checking' repeatedly.]";
         }
 
         // 4.2 Generate AI response with updated context

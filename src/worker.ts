@@ -663,16 +663,21 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
         try {
             if (env.GOOGLE_CLIENT_ID) {
                 const calendar = createGoogleCalendarClient(env);
-                externalBusySlots = await calendar.getBusySlots(today, nextWeek);
+                externalBusySlots = await calendar.getBusySlots(today);
             }
         } catch (e) { console.error('GCal Fetch Error:', e); }
 
         // 3. Inject into AI Context (Prepare external slots for later use)
         // We will pass externalBusySlots to the final generateAIResponse call.
 
-        // 4. Check for Booking Intent
+        // 4. Check for Booking Intent — skip if a booking was already created this session
+        const alreadyBooked = historySimple.some(m => m.content.includes('[SYSTEM: BOOKING SUCCESSFULLY CREATED'));
         let bookingStatusContext = "";
+        if (alreadyBooked) {
+            bookingStatusContext = "[SYSTEM: Booking already confirmed for this session. Do not attempt another booking. Just respond naturally to the user's message.]";
+        }
         try {
+          if (!alreadyBooked) {
             const bookingIntent = await import('../lib/chat-agent').then(m => m.extractBookingIntent(historySimple, env, env.DB));
 
             if (bookingIntent && bookingIntent.ready) {
@@ -736,14 +741,15 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
                     }
                 }
             }
+          } // end if (!alreadyBooked)
         } catch (error) {
             console.error('Automated Booking Logic Error:', error);
             bookingStatusContext = `[SYSTEM: Error processing booking. Ask user for more details.]`;
         }
 
-        // CRITICAL: If no booking was created, ensure AI knows it CANNOT confirm.
-        if (!bookingStatusContext.includes('BOOKING SUCCESSFULLY CREATED')) {
-            bookingStatusContext += "\n[SYSTEM: No booking created yet. Continue gathering any missing details naturally. Do NOT say 'I am checking' repeatedly.]";
+        // If no booking created yet, remind AI not to confirm prematurely
+        if (!alreadyBooked && !bookingStatusContext.includes('BOOKING SUCCESSFULLY CREATED')) {
+            bookingStatusContext += "\n[SYSTEM: No booking created yet. Gather missing details naturally.]";
         }
 
         // 4.2 Generate AI response with updated context

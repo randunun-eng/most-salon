@@ -274,6 +274,52 @@ export default {
             if (path === '/api/calendar/sync' && method === 'GET') {
                 return json({ message: 'Calendar sync requires environment variables. Configure in Cloudflare dashboard.' });
             }
+
+            // Register GCal push webhook (call once to activate, then weekly cron re-registers)
+            if (path === '/api/calendar/register' && method === 'GET') {
+                const gcal = createGoogleCalendarClient(env);
+                const url = new URL(request.url);
+                const webhookUrl = `${url.protocol}//${url.host}/api/calendar/webhook`;
+                const channelId = `salon-most-${Date.now()}`;
+                const resourceId = await gcal.watchCalendar(webhookUrl, channelId);
+                await updateGlobalSetting(env.DB, 'gcal_channel_id', channelId);
+                await updateGlobalSetting(env.DB, 'gcal_resource_id', resourceId);
+                await updateGlobalSetting(env.DB, 'gcal_sync_token', '');
+                return json({ success: true, webhookUrl, channelId, resourceId, note: 'Webhook registered. Re-call every 7 days.' });
+            }
+
+            // Inbound GCal push notifications (Google calls this when owner edits on phone)
+            if (path === '/api/calendar/webhook') {
+                if (method === 'HEAD') return new Response(null, { status: 200 });
+                if (method === 'POST') {
+                    const channelId = request.headers.get('X-Goog-Channel-Id');
+                    const resourceState = request.headers.get('X-Goog-Resource-State');
+                    if (resourceState === 'sync') return new Response('OK', { status: 200 });
+                    const settings = await getGlobalSettings(env.DB);
+                    if (settings['gcal_channel_id'] && channelId !== settings['gcal_channel_id']) {
+                        return new Response('Forbidden', { status: 403 });
+                    }
+                    try {
+                        const { analyzeEventChange } = await import('../lib/calendar-ai');
+                        const gcal = createGoogleCalendarClient(env);
+                        const accessToken = await (gcal as any).getAccessToken();
+                        const syncToken = settings['gcal_sync_token'];
+                        const params: Record<string, string> = { singleEvents: 'true', showDeleted: 'true' };
+                        if (syncToken) params.syncToken = syncToken;
+                        else params.timeMin = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+                        const eventsRes = await fetch(
+                            `https://www.googleapis.com/calendar/v3/calendars/${env.GOOGLE_CALENDAR_ID}/events?${new URLSearchParams(params)}`,
+                            { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }
+                        );
+                        const eventsData = await eventsRes.json();
+                        if (eventsData.nextSyncToken) await updateGlobalSetting(env.DB, 'gcal_sync_token', eventsData.nextSyncToken);
+                        for (const event of (eventsData.items || [])) {
+                            await analyzeEventChange(event, env.DB, env);
+                        }
+                    } catch (e) { console.error('Webhook processing error:', e); }
+                    return new Response('OK', { status: 200 });
+                }
+            }
         } catch (error: any) {
             return json({ error: error.message || 'Internal server error' }, 500);
         }
@@ -290,7 +336,7 @@ export default {
 
             const gcal = createGoogleCalendarClient(env);
             const channelId = `salon-most-${Date.now()}`;
-            const webhookUrl = `https://most-salon.pages.dev/api/calendar/webhook`;
+            const webhookUrl = `https://most-salon.randunu-4oc.workers.dev/api/calendar/webhook`;
             const resourceId = await gcal.watchCalendar(webhookUrl, channelId);
 
             await updateGlobalSetting(env.DB, 'gcal_channel_id', channelId);
@@ -673,7 +719,20 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
                             }
                         } catch (e) { console.error('GCal Sync Error:', e); }
 
-                        bookingStatusContext = `[SYSTEM: BOOKING SUCCESSFULLY CREATED. Confirmed for ${name} at ${dateTime}.]`;
+                        // Build WhatsApp link to owner
+                        let waLink = '';
+                        try {
+                            const settingsMap = await getGlobalSettings(env.DB);
+                            const ownerPhone = settingsMap['owner_whatsapp'];
+                            if (ownerPhone) {
+                                const waMessage = encodeURIComponent(
+                                    `New booking confirmed!\nClient: ${name}\nPhone: ${phone}\nTime: ${new Date(dateTime).toLocaleString('en-US', { timeZone: 'Asia/Colombo' })}\nRef: ${booking.id}`
+                                );
+                                waLink = ` To notify us on WhatsApp, tap: https://wa.me/${ownerPhone.replace(/[^0-9]/g, '')}?text=${waMessage}`;
+                            }
+                        } catch {}
+
+                        bookingStatusContext = `[SYSTEM: BOOKING SUCCESSFULLY CREATED. Confirmed for ${name} at ${dateTime}.${waLink}]`;
                     }
                 }
             }

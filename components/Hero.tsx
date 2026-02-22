@@ -54,7 +54,7 @@ export default function Hero() {
 
                     {/* Feature Badge */}
                     <div className="inline-block border border-white/40 bg-white/10 backdrop-blur-md px-8 py-3 rounded-full mb-12">
-                        <span className="text-xs md:text-sm font-medium tracking-wider text-white flex items-center gap-3">
+                        <span className="text-xs md:text-sm font-medium tracking-wider text-white flex flex-wrap justify-center items-center gap-2 md:gap-3">
                             <span>⭐ Zero Waiting Time</span>
                             <span className="text-white/50">•</span>
                             <span>Family Friendly</span>

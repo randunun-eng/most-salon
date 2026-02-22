@@ -2,14 +2,12 @@
 
 import Navbar from "@/components/Navbar";
 import GoogleCalendarBooking from "@/components/GoogleCalendarBooking";
-import BackgroundAudio from "@/components/BackgroundAudio";
 import { Suspense } from "react";
 import FadeIn from "@/components/FadeIn";
 
 export default function BookingPage() {
     return (
         <main className="min-h-screen bg-background">
-            <BackgroundAudio />
             <Navbar />
             <div className="pt-32 pb-20 container mx-auto px-4 max-w-4xl">
                 <FadeIn>

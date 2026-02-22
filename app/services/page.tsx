@@ -1,16 +1,17 @@
 'use client';
 
+import { useState, useEffect } from "react";
+import FadeIn from "@/components/FadeIn";
+import { Service } from "@/lib/db-types";
 import Navbar from "@/components/Navbar";
-import { services, ServiceCategory } from "@/lib/data";
 import ServiceCard from "@/components/ServiceCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
-import FadeIn from "@/components/FadeIn";
 
+type ServiceCategory = "Hair" | "Nails" | "Makeup" | "Facials" | "Massage";
+
+// Static categories and videos remain ...
 const categories: ServiceCategory[] = ["Hair", "Nails", "Makeup", "Facials", "Massage"];
-
-// Map categories to their respective video files
 const categoryVideos: Record<ServiceCategory, string> = {
     "Hair": "/videos/hair.mp4",
     "Nails": "/videos/nail.mp4",
@@ -21,12 +22,38 @@ const categoryVideos: Record<ServiceCategory, string> = {
 
 export default function ServicesPage() {
     const [activeCategory, setActiveCategory] = useState<ServiceCategory>("Hair");
+    const [services, setServices] = useState<Service[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchServices = async () => {
+            try {
+                const res = await fetch('/api/services');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data)) {
+                        setServices(data);
+                    }
+                }
+            } catch (error) {
+                console.error("Failed to fetch services", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchServices();
+    }, []);
+
+    // Filter services for the active category.
+    // Ensure case-insensitive comparison or default behavior if category is missing
+    const filteredServices = services.filter(s => (s.category || 'Hair') === activeCategory);
 
     return (
         <main className="min-h-screen bg-background relative">
             <Navbar />
 
-            {/* Full Page Video Background - Fixed behind everything */}
+            {/* Video Background ... (unchanged) */}
             <div className="fixed inset-0 z-0">
                 <AnimatePresence mode="wait">
                     <motion.div
@@ -37,7 +64,6 @@ export default function ServicesPage() {
                         transition={{ duration: 0.8 }}
                         className="absolute inset-0"
                     >
-                        {/* Dark overlay for readability */}
                         <div className="absolute inset-0 bg-black/70 z-10" />
                         <video
                             autoPlay
@@ -53,9 +79,9 @@ export default function ServicesPage() {
                 </AnimatePresence>
             </div>
 
-            {/* Content Layer - Above Video */}
+            {/* Content Layer */}
             <div className="relative z-10">
-                {/* Header Section */}
+                {/* Header ... (unchanged) */}
                 <div className="h-[40vh] md:h-[50vh] flex items-center justify-center">
                     <div className="text-center text-white pt-16">
                         <FadeIn>
@@ -85,19 +111,21 @@ export default function ServicesPage() {
                             ))}
                         </TabsList>
 
-                        {categories.map((category) => (
-                            <TabsContent key={category} value={category} className="mt-0 focus-visible:outline-none focus-visible:ring-0">
+                        <div className="min-h-[400px]">
+                            {isLoading ? (
+                                <div className="text-center text-white/50 py-20">Loading services...</div>
+                            ) : filteredServices.length > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                    {services
-                                        .filter((s) => s.category === category)
-                                        .map((service, index) => (
-                                            <FadeIn key={service.id} delay={index * 0.1}>
-                                                <ServiceCard service={service} />
-                                            </FadeIn>
-                                        ))}
+                                    {filteredServices.map((service, index) => (
+                                        <FadeIn key={service.id} delay={index * 0.1}>
+                                            <ServiceCard service={service} />
+                                        </FadeIn>
+                                    ))}
                                 </div>
-                            </TabsContent>
-                        ))}
+                            ) : (
+                                <div className="text-center text-white/50 py-20">No services found in this category.</div>
+                            )}
+                        </div>
                     </Tabs>
                 </div>
             </div>

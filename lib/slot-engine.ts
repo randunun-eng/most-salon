@@ -50,24 +50,63 @@ export function isStylistWorkingDay(stylist: Stylist, date: Date): boolean {
  * @param bookings - Existing bookings for this stylist on this date
  * @returns Array of available start times
  */
+/**
+ * Generate available time slots for a stylist on a specific date
+ * @param stylist - The stylist to generate slots for
+ * @param date - The date to generate slots for
+ * @param serviceDuration - Duration of the service in minutes
+ * @param bookings - Existing bookings for this stylist on this date
+ * @returns Array of available start times
+ */
 export function generateSlotsForStylist(
     stylist: Stylist,
     date: Date,
     serviceDuration: number,
     bookings: Booking[],
-    blockedRanges: { start: Date; end: Date }[] = []
+    blockedRanges: { start: Date; end: Date }[] = [],
+    // in generateSlotsForStylist
+    businessHours?: Map<number, { open: string, close: string, isClosed: boolean }>,
+    holidays?: any[]
 ): Date[] {
     const slots: Date[] = [];
     const interval = 15; // 15-minute grid
 
-    // Check if stylist works on this day
+    // 0. Check Holidays
+    const dateStr = formatDateKey(date);
+    const isHoliday = holidays?.some(h =>
+        h.date === dateStr && (!h.stylist_id || h.stylist_id === stylist.id)
+    );
+
+    if (isHoliday) return [];
+
+    // 1. Check if stylist works on this day (Personal Schedule)
     if (!isStylistWorkingDay(stylist, date)) {
         return slots;
     }
 
-    // Parse working hours
-    const dayStart = parseTimeWithDate(date, stylist.start_time);
-    const dayEnd = parseTimeWithDate(date, stylist.end_time);
+    // 2. Parse effective working hours
+    let dayStart = parseTimeWithDate(date, stylist.start_time);
+    let dayEnd = parseTimeWithDate(date, stylist.end_time);
+
+    // 3. Apply Business Hours Constraints
+    if (businessHours) {
+        const dayOfWeek = date.getDay();
+        const bizHours = businessHours.get(dayOfWeek);
+
+        if (bizHours) {
+            if (bizHours.isClosed) return []; // Shop is closed
+
+            const bizOpen = parseTimeWithDate(date, bizHours.open);
+            const bizClose = parseTimeWithDate(date, bizHours.close);
+
+            //Intersect stylist hours with business hours
+            if (dayStart < bizOpen) dayStart = bizOpen;
+            if (dayEnd > bizClose) dayEnd = bizClose;
+
+            // If adjusted start is after end, no slots possible
+            if (dayStart >= dayEnd) return [];
+        }
+    }
 
     // Parse break times if they exist
     let breakStart: Date | null = null;
@@ -138,7 +177,9 @@ export function generateSlotsAllStylists(
     date: Date,
     serviceDuration: number,
     bookingsByStyleist: Map<string, Booking[]>,
-    blockedRanges: { start: Date; end: Date }[] = []
+    blockedRanges: { start: Date; end: Date }[] = [],
+    businessHours?: Map<number, { open: string, close: string, isClosed: boolean }>,
+    holidays?: any[]
 ): TimeSlot[] {
     const allSlots: TimeSlot[] = [];
 
@@ -146,7 +187,7 @@ export function generateSlotsAllStylists(
         if (!stylist.is_active) continue;
 
         const bookings = bookingsByStyleist.get(stylist.id) || [];
-        const slots = generateSlotsForStylist(stylist, date, serviceDuration, bookings, blockedRanges);
+        const slots = generateSlotsForStylist(stylist, date, serviceDuration, bookings, blockedRanges, businessHours, holidays);
 
         for (const slotStart of slots) {
             const slotEnd = new Date(slotStart);

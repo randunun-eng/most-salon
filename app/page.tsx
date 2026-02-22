@@ -10,7 +10,6 @@ import Services from "@/components/Services";
 import About from "@/components/About";
 import LookBook from "@/components/LookBook";
 import Footer from "@/components/Footer";
-import BackgroundAudio from '@/components/BackgroundAudio';
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import FadeIn from "@/components/FadeIn";
@@ -20,9 +19,6 @@ export default function Home() {
     <main className="min-h-screen bg-background text-foreground overflow-x-hidden selection:bg-primary selection:text-black">
       {/* 1. Opening Animation */}
       <OpeningLoader />
-
-      {/* Audio */}
-      <BackgroundAudio />
 
       {/* Navigation */}
       <Navbar />

@@ -23,7 +23,7 @@ const reviews = [
 
 export default function ClientStories() {
     return (
-        <section className="relative h-screen min-h-[600px] flex items-center justify-center overflow-hidden">
+        <section className="relative min-h-screen flex items-center justify-center overflow-hidden py-20 md:py-0">
             {/* Background Video */}
             <div className="absolute inset-0 z-0">
                 <div className="absolute inset-0 bg-black/60 z-10" />

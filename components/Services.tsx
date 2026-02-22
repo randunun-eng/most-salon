@@ -41,9 +41,9 @@ export default function Services() {
     const [activeService, setActiveService] = useState(services[0]);
 
     return (
-        <section className="relative w-full h-[80vh] bg-black overflow-hidden flex flex-col md:flex-row">
+        <section className="relative w-full md:h-[80vh] bg-black overflow-hidden flex flex-col md:flex-row">
             {/* Content Side */}
-            <div className="relative z-20 w-full md:w-1/3 h-full bg-black/80 backdrop-blur-sm border-r border-white/10 flex flex-col justify-center px-8 md:px-12 py-12">
+            <div className="relative z-20 w-full md:w-1/3 md:h-full bg-black/80 backdrop-blur-sm border-b md:border-b-0 md:border-r border-white/10 flex flex-col justify-center px-8 md:px-12 py-10 md:py-12">
                 <motion.h2
                     className="text-4xl md:text-5xl font-serif text-white mb-12"
                     initial={{ opacity: 0, x: -20 }}
@@ -72,7 +72,7 @@ export default function Services() {
             </div>
 
             {/* Video Display Side */}
-            <div className="relative w-full md:w-2/3 h-full">
+            <div className="relative w-full md:w-2/3 h-64 md:h-full">
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={activeService.id}

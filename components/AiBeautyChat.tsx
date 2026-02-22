@@ -1,26 +1,73 @@
 'use client';
 
-// Remove useChat dependency effectively by implementing local state logic
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, X, Send } from "lucide-react";
+import { MessageCircle, X, Send, Loader2 } from "lucide-react";
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 interface Message {
     id: string;
-    role: 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'admin';
     content: string;
 }
 
+import { usePathname } from 'next/navigation';
+
 export default function AiBeautyChat() {
+    const pathname = usePathname();
     const [isOpen, setIsOpen] = useState(false);
+
     const [inputValue, setInputValue] = useState('');
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [chatId, setChatId] = useState<string | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const pollInterval = useRef<NodeJS.Timeout | null>(null);
+
+    // Initialize Chat Session
+    useEffect(() => {
+        const storedChatId = localStorage.getItem('most_salon_chat_id');
+        const storedClientId = localStorage.getItem('most_salon_client_id') || crypto.randomUUID();
+
+        if (!localStorage.getItem('most_salon_client_id')) {
+            localStorage.setItem('most_salon_client_id', storedClientId);
+        }
+
+        const fetchHistory = async () => {
+            try {
+                const params = new URLSearchParams();
+                if (storedChatId) params.append('chatId', storedChatId);
+                else params.append('clientId', storedClientId);
+
+                const res = await fetch(`/api/chat?${params.toString()}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.chatId) {
+                        setChatId(data.chatId);
+                        localStorage.setItem('most_salon_chat_id', data.chatId);
+                    }
+                    if (Array.isArray(data.messages)) {
+                        setMessages(data.messages);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load chat history", err);
+            }
+        };
+
+        if (isOpen) {
+            fetchHistory();
+            // Start polling
+            pollInterval.current = setInterval(fetchHistory, 5000);
+        }
+
+        return () => {
+            if (pollInterval.current) clearInterval(pollInterval.current);
+        };
+    }, [isOpen]);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -32,39 +79,46 @@ export default function AiBeautyChat() {
         e?.preventDefault();
         if (!inputValue.trim() || isLoading) return;
 
-        const userMsg: Message = {
-            id: Date.now().toString(),
-            role: 'user',
-            content: inputValue
-        };
+        const content = inputValue;
+        const tempId = Date.now().toString();
 
-        setMessages(prev => [...prev, userMsg]);
+        // Optimistic update
+        setMessages(prev => [...prev, { id: tempId, role: 'user', content }]);
         setInputValue('');
         setIsLoading(true);
 
-        // Simulate network delay and thinking
-        setTimeout(() => {
-            let responseText = "I'm here to help you customize your beauty experience at The MOST. How can I assist you today?";
-            const lowerInput = userMsg.content.toLowerCase();
+        try {
+            const clientId = localStorage.getItem('most_salon_client_id');
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: [{ role: 'user', content }],
+                    chatId,
+                    clientId
+                })
+            });
 
-            if (lowerInput.includes('facial')) {
-                responseText = "For first-time visitors, I highly recommend our Hydra-Glow Facial. It's perfect for deep hydration and giving you that radiant 'glass skin' look. Would you like to book it?";
-            } else if (lowerInput.includes('wedding')) {
-                responseText = "Congratulations! For weddings, our Bridal Makeup package is designed to look flawless in photos and last all day. We also recommend a trial session 2 weeks prior.";
-            } else if (lowerInput.includes('book')) {
-                responseText = "You can easily book online by clicking the 'Book Now' button. Do you need help choosing a stylist?";
+            if (res.ok) {
+                const data = await res.json();
+                if (data.chatId && !chatId) {
+                    setChatId(data.chatId);
+                    localStorage.setItem('most_salon_chat_id', data.chatId);
+                }
+
+                if (data.message) {
+                    setMessages(prev => [...prev, data.message]);
+                }
+                // If status is 'waiting_for_agent', we just wait (polling will pick up agent/admin reply)
             }
-
-            const assistantMsg: Message = {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: responseText
-            };
-
-            setMessages(prev => [...prev, assistantMsg]);
+        } catch (err) {
+            console.error(err);
+        } finally {
             setIsLoading(false);
-        }, 1000 + Math.random() * 1000);
+        }
     };
+
+    if (pathname?.startsWith('/admin')) return null;
 
     return (
         <>
@@ -76,59 +130,62 @@ export default function AiBeautyChat() {
                         exit={{ opacity: 0, y: 20, scale: 0.95 }}
                         className="fixed bottom-20 right-4 z-50 w-full max-w-[350px] md:w-[400px]"
                     >
-                        <Card className="border-border shadow-2xl overflow-hidden">
-                            <CardHeader className="bg-primary text-primary-foreground p-4 flex flex-row items-center justify-between">
+                        <Card className="border-border shadow-2xl overflow-hidden glass-panel">
+                            <CardHeader className="bg-neutral-900 text-white p-4 flex flex-row items-center justify-between border-b border-white/10">
                                 <div className="flex items-center gap-2">
                                     <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                                     <span className="font-serif font-medium">The MOST Assistant</span>
                                 </div>
-                                <Button variant="ghost" size="icon" className="h-6 w-6 text-primary-foreground hover:bg-primary/80" onClick={() => setIsOpen(false)}>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-white/10" onClick={() => setIsOpen(false)}>
                                     <X className="h-4 w-4" />
                                 </Button>
                             </CardHeader>
-                            <CardContent className="p-4 h-[400px] overflow-y-auto bg-secondary/10" ref={scrollRef}>
+                            <CardContent className="p-4 h-[400px] overflow-y-auto bg-neutral-950/90" ref={scrollRef}>
                                 {messages.length === 0 && (
-                                    <div className="text-center text-muted-foreground mt-20 p-4">
+                                    <div className="text-center text-gray-400 mt-20 p-4">
                                         <p className="mb-2">✨ Welcome to The MOST.</p>
-                                        <p className="text-sm">Ask me about our services, skincare recommendations, or booking help.</p>
+                                        <p className="text-xs">Ask me about services, prices, or book an appointment.</p>
                                     </div>
                                 )}
-                                <div className="flex flex-col gap-4">
+                                <div className="flex flex-col gap-3">
                                     {messages.map(m => (
                                         <div key={m.id} className={cn("flex", m.role === 'user' ? "justify-end" : "justify-start")}>
                                             <div className={cn(
-                                                "max-w-[80%] rounded-2xl px-4 py-2 text-sm",
+                                                "max-w-[85%] rounded-2xl px-4 py-2 text-sm leading-relaxed",
                                                 m.role === 'user'
-                                                    ? "bg-primary text-primary-foreground rounded-br-none"
-                                                    : "bg-background border border-border rounded-bl-none shadow-sm"
+                                                    ? "bg-white text-black rounded-br-none"
+                                                    : m.role === 'admin'
+                                                        ? "bg-blue-600 text-white rounded-bl-none shadow-md border border-blue-500"
+                                                        : "bg-neutral-800 text-gray-100 border border-neutral-700 rounded-bl-none"
                                             )}>
                                                 {m.content}
+                                                {m.role === 'admin' && <div className="text-[9px] opacity-70 mt-1 uppercase tracking-wider">Salon Team</div>}
                                             </div>
                                         </div>
                                     ))}
                                     {isLoading && (
                                         <div className="flex justify-start">
-                                            <div className="bg-background border border-border rounded-2xl rounded-bl-none px-4 py-2 text-sm shadow-sm">
+                                            <div className="bg-neutral-800 border border-neutral-700 rounded-2xl rounded-bl-none px-4 py-3 shadow-sm">
                                                 <div className="flex gap-1">
-                                                    <span className="animate-bounce">.</span>
-                                                    <span className="animate-bounce delay-100">.</span>
-                                                    <span className="animate-bounce delay-200">.</span>
+                                                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
+                                                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-100" />
+                                                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-200" />
                                                 </div>
                                             </div>
                                         </div>
                                     )}
                                 </div>
                             </CardContent>
-                            <CardFooter className="p-3 bg-background border-t border-border">
+                            <CardFooter className="p-3 bg-neutral-900 border-t border-white/10">
                                 <form onSubmit={handleSend} className="flex w-full gap-2">
                                     <Input
                                         value={inputValue}
                                         onChange={(e) => setInputValue(e.target.value)}
-                                        placeholder="Ask about facials..."
-                                        className="flex-1 focus-visible:ring-primary"
+                                        placeholder="Type a message..."
+                                        className="flex-1 bg-neutral-800 border-neutral-700 text-white focus-visible:ring-1 focus-visible:ring-white/20 placeholder:text-gray-500"
                                     />
-                                    <Button type="submit" size="icon" disabled={isLoading} className="bg-primary text-primary-foreground hover:bg-accent transition-colors">
-                                        <Send className="h-4 w-4" />
+                                    <Button type="submit" size="icon" disabled={isLoading} className="bg-white text-black hover:bg-gray-200 transition-colors">
+                                        {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                                     </Button>
                                 </form>
                             </CardFooter>
@@ -141,12 +198,13 @@ export default function AiBeautyChat() {
                 onClick={() => setIsOpen(!isOpen)}
                 size="icon"
                 className={cn(
-                    "fixed bottom-4 right-16 z-[40] h-12 w-12 rounded-full shadow-lg transition-transform hover:scale-105",
-                    isOpen ? "bg-secondary text-secondary-foreground" : "bg-primary text-primary-foreground"
+                    "fixed bottom-6 right-6 z-[40] h-14 w-14 rounded-full shadow-2xl transition-all duration-300 hover:scale-110",
+                    isOpen ? "bg-neutral-900 text-white border border-white/10" : "bg-white text-black hover:bg-gray-100"
                 )}
             >
-                <MessageCircle className="h-6 w-6" />
+                {isOpen ? <X className="h-6 w-6" /> : <MessageCircle className="h-7 w-7" />}
             </Button>
         </>
     );
 }
+

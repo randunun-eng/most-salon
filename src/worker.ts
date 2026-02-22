@@ -29,14 +29,16 @@ import {
     getChatById,
     updateChatContact,
     getAllChats,
-    updateChatStatus
+    updateChatStatus,
+    getBookingState,
+    setBookingState
 } from '../lib/database';
 import {
     generateSlotsForStylist,
     generateSlotsAllStylists,
     filterFutureSlots
 } from '../lib/slot-engine';
-import { generateAIResponse, extractContactInfo } from '../lib/chat-agent';
+import { generateAIResponse, extractContactInfo, runBookingStateMachine } from '../lib/chat-agent';
 import { createGoogleCalendarClient } from '../lib/google-calendar';
 
 interface Env {
@@ -631,151 +633,35 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
 
     // 1. Resolve Chat Session
     let chat = chatId ? await getChatById(env.DB, chatId) : await getChat(env.DB, clientId);
-
-    if (!chat) {
-        chat = await createChat(env.DB, clientId);
-    }
+    if (!chat) chat = await createChat(env.DB, clientId);
 
     // 2. Save User Message
     await addMessage(env.DB, chat.id, 'user', lastUserMessage.content);
 
-    // 3. Extract Contact Info
+    // 3. Extract Contact Info (lead gen — best-effort)
     const contactInfo = await extractContactInfo(lastUserMessage.content, env);
     if (contactInfo) {
         await updateChatContact(env.DB, chat.id, contactInfo.name, contactInfo.phone);
     }
 
-    // 4. Handle Response logic
-    if (chat.ai_status === 1) {
-        // AI Mode: Active
-        const history = await getMessages(env.DB, chat.id);
-        const historySimple = history.map(m => ({ role: m.role, content: m.content }));
-
-        // --- CONTEXT PREPARATION ---
-        // 1. Sync GCal for next 7 days
-        const today = new Date();
-        const nextWeek = new Date(today);
-        nextWeek.setDate(today.getDate() + 7);
-        await syncWithGoogleCalendar(env, today, nextWeek);
-
-        // 2. Fetch Busy Slots from GCal (External events)
-        let externalBusySlots: any[] = [];
-        try {
-            if (env.GOOGLE_CLIENT_ID) {
-                const calendar = createGoogleCalendarClient(env);
-                externalBusySlots = await calendar.getBusySlots(today);
-            }
-        } catch (e) { console.error('GCal Fetch Error:', e); }
-
-        // 3. Inject into AI Context (Prepare external slots for later use)
-        // We will pass externalBusySlots to the final generateAIResponse call.
-
-        // 4. Check for Booking Intent — skip if a booking was already created this session
-        const alreadyBooked = historySimple.some(m => m.content.includes('[SYSTEM: BOOKING SUCCESSFULLY CREATED'));
-        let bookingStatusContext = "";
-        if (alreadyBooked) {
-            bookingStatusContext = "[SYSTEM: Booking already confirmed for this session. Do not attempt another booking. Just respond naturally to the user's message.]";
-        }
-        try {
-          if (!alreadyBooked) {
-            const bookingIntent = await import('../lib/chat-agent').then(m => m.extractBookingIntent(historySimple, env, env.DB));
-
-            if (bookingIntent && bookingIntent.ready) {
-                const { serviceId, stylistId, dateTime, name, phone } = bookingIntent;
-                const service = await getService(env.DB, serviceId);
-
-                if (service) {
-                    const startTime = new Date(dateTime);
-                    const endTime = new Date(startTime);
-                    endTime.setMinutes(endTime.getMinutes() + service.duration_minutes);
-
-                    let targetStylistId = stylistId === 'any' ? (await getStylists(env.DB, true))[0]?.id : stylistId;
-
-                    // VALIDATION: Check if slot is busy
-                    const existingBookings = await getBookings(env.DB);
-                    const isBusy = existingBookings.some(b =>
-                        b.stylist_id === targetStylistId &&
-                        b.status === 'confirmed' &&
-                        ((startTime >= b.start_time && startTime < b.end_time) ||
-                            (endTime > b.start_time && endTime <= b.end_time))
-                    );
-
-                    if (isBusy) {
-                        bookingStatusContext = `[SYSTEM: The slot ${dateTime} for stylist ${targetStylistId} is BUSY. Inform user and suggest alternative.]`;
-                    } else {
-                        // PERFORM ACTUAL BOOKING
-                        const booking = await createBooking(env.DB, {
-                            client_name: name,
-                            client_email: `${name.toLowerCase().replace(/\s/g, '')}@example.com`,
-                            client_phone: phone,
-                            service_id: serviceId,
-                            stylist_id: targetStylistId,
-                            start_time: startTime,
-                            end_time: endTime,
-                            status: 'confirmed'
-                        });
-
-                        // Sync to Google Calendar
-                        try {
-                            const calendar = createGoogleCalendarClient(env as any);
-                            if (calendar) {
-                                const stylist = await getStylist(env.DB, targetStylistId);
-                                await calendar.createEvent(booking, service.name, stylist?.name || 'Stylist');
-                            }
-                        } catch (e) { console.error('GCal Sync Error:', e); }
-
-                        // Build WhatsApp link to owner
-                        let waLink = '';
-                        try {
-                            const settingsMap = await getGlobalSettings(env.DB);
-                            const ownerPhone = settingsMap['owner_whatsapp'];
-                            if (ownerPhone) {
-                                const waMessage = encodeURIComponent(
-                                    `New booking confirmed!\nClient: ${name}\nPhone: ${phone}\nTime: ${new Date(dateTime).toLocaleString('en-US', { timeZone: 'Asia/Colombo' })}\nRef: ${booking.id}`
-                                );
-                                waLink = ` To notify us on WhatsApp, tap: https://wa.me/${ownerPhone.replace(/[^0-9]/g, '')}?text=${waMessage}`;
-                            }
-                        } catch {}
-
-                        bookingStatusContext = `[SYSTEM: BOOKING SUCCESSFULLY CREATED. Confirmed for ${name} at ${dateTime}.${waLink}]`;
-                    }
-                }
-            }
-          } // end if (!alreadyBooked)
-        } catch (error) {
-            console.error('Automated Booking Logic Error:', error);
-            bookingStatusContext = `[SYSTEM: Error processing booking. Ask user for more details.]`;
-        }
-
-        // If no booking created yet, remind AI not to confirm prematurely
-        if (!alreadyBooked && !bookingStatusContext.includes('BOOKING SUCCESSFULLY CREATED')) {
-            bookingStatusContext += "\n[SYSTEM: No booking created yet. Gather missing details naturally.]";
-        }
-
-        // 4.2 Generate AI response with updated context
-        const aiResponseText = await generateAIResponse(
-            lastUserMessage.content + " " + bookingStatusContext,
-            historySimple,
-            env,
-            env.DB,
-            externalBusySlots
-        );
-
-        // 4.3 Save AI Message
-        const savedMsg = await addMessage(env.DB, chat.id, 'assistant', aiResponseText);
-
-        return json({
-            chatId: chat.id,
-            message: savedMsg
-        });
-
-    } else {
-        // Human Mode: Paused
-        return json({
-            chatId: chat.id,
-            status: 'waiting_for_agent'
-        });
+    // 4. Human mode — wait for agent
+    if ((chat as any).ai_status !== 1) {
+        return json({ chatId: chat.id, status: 'waiting_for_agent' });
     }
+
+    // 5. Run state machine
+    const currentState = await getBookingState(env.DB, chat.id);
+    const { response, newState } = await runBookingStateMachine(
+        currentState,
+        lastUserMessage.content,
+        env,
+        env.DB
+    );
+    await setBookingState(env.DB, chat.id, newState);
+
+    // 6. Save and return bot response
+    const savedMsg = await addMessage(env.DB, chat.id, 'assistant', response);
+    return json({ chatId: chat.id, message: savedMsg });
 }
 
 async function handleWhatsApp(request: Request, env: Env): Promise<Response> {

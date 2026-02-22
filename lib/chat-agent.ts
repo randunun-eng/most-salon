@@ -218,17 +218,27 @@ export async function parseTimeFromMessage(
     message: string,
     env: any
 ): Promise<string | null> {
-    try {
-        const res = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
-            messages: [
-                { role: 'system', content: 'Extract the time from the user\'s message. Return ONLY HH:MM in 24-hour format (e.g. "14:30"). If no time, return "none".' },
-                { role: 'user', content: message }
-            ],
-            max_tokens: 10
-        });
-        const result = res.response?.trim();
-        if (result && /^\d{2}:\d{2}$/.test(result)) return result;
-    } catch {}
+    // Regex-first: handles "3pm", "9.30am", "10:45 AM", "14:30" reliably
+    const ampm = message.match(/\b(\d{1,2})(?:[:\.](\d{2}))?\s*(am|pm)\b/i);
+    if (ampm) {
+        let h = parseInt(ampm[1]);
+        const m = ampm[2] ? parseInt(ampm[2]) : 0;
+        const period = ampm[3].toLowerCase();
+        if (period === 'pm' && h !== 12) h += 12;
+        if (period === 'am' && h === 12) h = 0;
+        if (h >= 0 && h < 24 && m >= 0 && m < 60) {
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        }
+    }
+    // 24h format: "14:30", "9:00"
+    const h24 = message.match(/\b(\d{1,2}):(\d{2})\b/);
+    if (h24) {
+        const h = parseInt(h24[1]);
+        const m = parseInt(h24[2]);
+        if (h >= 0 && h < 24 && m >= 0 && m < 60) {
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        }
+    }
     return null;
 }
 
@@ -351,6 +361,11 @@ export async function runBookingStateMachine(
 
     // ── Step: ask_time + availability check ───────────────────────────────
     if (step === 'ask_time') {
+        // Detect "any other stylist" intent — switch to auto-assign
+        if (/\b(any|other stylist|someone else|whoever|different stylist|any stylist|anyone)\b/i.test(userMessage)) {
+            state = { ...state, stylist_id: 'any', stylist_name: 'any available stylist' };
+        }
+
         const time = await parseTimeFromMessage(userMessage, env);
         if (!time) {
             return {
@@ -557,8 +572,10 @@ async function findAlternativeSlots(
                 candidate < b.end_time && candEnd > b.start_time
             );
             if (!busy && candidate > new Date()) {
-                const h = candidate.getUTCHours();
-                const m = candidate.getUTCMinutes();
+                // Convert UTC to Colombo (UTC+5:30) for display
+                const colombo = new Date(candidate.getTime() + 330 * 60 * 1000);
+                const h = colombo.getUTCHours();
+                const m = colombo.getUTCMinutes();
                 const hh = String(h).padStart(2, '0');
                 const mm = String(m).padStart(2, '0');
                 alts.push(`${formatTime(`${hh}:${mm}`)} (${stylist.name})`);

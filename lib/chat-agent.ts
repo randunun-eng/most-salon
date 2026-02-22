@@ -361,12 +361,19 @@ export async function runBookingStateMachine(
 
     // ── Step: ask_time + availability check ───────────────────────────────
     if (step === 'ask_time') {
+        const wantAnyStylest = /\b(any|other stylist|someone else|whoever|different stylist|any stylist|anyone|other)\b/i.test(userMessage);
+
         // Detect "any other stylist" intent — switch to auto-assign
-        if (/\b(any|other stylist|someone else|whoever|different stylist|any stylist|anyone)\b/i.test(userMessage)) {
+        if (wantAnyStylest) {
             state = { ...state, stylist_id: 'any', stylist_name: 'any available stylist' };
         }
 
-        const time = await parseTimeFromMessage(userMessage, env);
+        // Parse time from message, or fall back to last attempted time if user only asked to change stylist
+        let time = await parseTimeFromMessage(userMessage, env);
+        if (!time && wantAnyStylest && state.last_attempted_time) {
+            time = state.last_attempted_time; // re-check same time with new stylist preference
+        }
+
         if (!time) {
             return {
                 response: `What time works for you? (e.g. "3pm", "10:30", "2:00 PM")`,
@@ -427,7 +434,7 @@ export async function runBookingStateMachine(
 
         const alts = await findAlternativeSlots(db, state, stylists, startTime, state.service_duration || 60);
         const altText = alts.length > 0 ? `\n\nAvailable times: ${alts.join(', ')}` : '';
-        const newState = { ...state, time: undefined, retry_count: retryCount };
+        const newState = { ...state, time: undefined, last_attempted_time: time, retry_count: retryCount };
         return {
             response: `Sorry, that slot isn't available.${altText}\n\nWhat time would you prefer?`,
             newState

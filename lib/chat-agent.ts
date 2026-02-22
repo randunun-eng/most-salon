@@ -134,57 +134,122 @@ export async function extractContactInfo(
     return { phone: phoneMatch[0] };
 }
 
-export async function extractBookingIntent(
-    history: { role: string, content: string }[],
-    env: any,
-    db: D1Database
-): Promise<any | null> {
+/** Extract which service the user wants. Returns matching service or null. */
+export async function extractServiceFromMessage(
+    message: string,
+    services: { id: string; name: string }[],
+    env: any
+): Promise<{ id: string; name: string; duration: number } | null> {
+    // Try fuzzy match first (no LLM cost)
+    const lower = message.toLowerCase();
+    const direct = (services as any[]).find(s => lower.includes(s.name.toLowerCase()));
+    if (direct) return { id: direct.id, name: direct.name, duration: direct.duration_minutes };
+
+    // LLM fallback
     try {
-        const services = await getServices(db);
-        const stylists = await getStylists(db, true);
-
-        const now = new Date();
-        const todayStr = now.toLocaleDateString('en-US', { timeZone: 'Asia/Colombo', year: 'numeric', month: '2-digit', day: '2-digit' });
-        const analysisPrompt = `Analyze this salon booking conversation and extract booking details if all are present.
-
-Today's date: ${now.toISOString().split('T')[0]} (${todayStr} in Colombo, UTC+5:30)
-
-Available Services (match by name, return the ID):
-${services.map(s => `ID: ${s.id}, Name: ${s.name}`).join('\n')}
-
-Available Stylists (match by first name or full name, return the ID):
-${stylists.map(s => `ID: ${s.id}, Name: ${s.name}`).join('\n')}
-
-INSTRUCTIONS:
-- Set "ready": true ONLY when ALL of these are confirmed: service, stylist, date+time, client name, phone number.
-- For dateTime: convert natural language like "today at 3:50pm" to ISO format using today's date above. "Today" = ${now.toISOString().split('T')[0]}. Use 24-hour time and Asia/Colombo timezone offset (+05:30).
-- For stylist: match partial names (e.g. "Sarah" → Sarah Johnson). If user said "any", use the first stylist's ID as fallback.
-- If the AI assistant summarised all details and the user replied "yes" or confirmed, treat it as ready.
-
-Return ONLY this JSON (no explanation):
-{
-  "ready": true/false,
-  "serviceId": "...",
-  "stylistId": "...",
-  "dateTime": "YYYY-MM-DDTHH:mm:00",
-  "name": "...",
-  "phone": "..."
-}`;
-
-        const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+        const serviceList = services.map(s => `"${s.name}"`).join(', ');
+        const res = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
             messages: [
-                { role: 'system', content: analysisPrompt },
-                ...history.slice(-6) // Analyze last 6 messages
-            ]
+                { role: 'system', content: `You are matching a client's message to a salon service. Services: ${serviceList}. Return ONLY the exact service name that best matches, or "none" if no match.` },
+                { role: 'user', content: message }
+            ],
+            max_tokens: 30
         });
-
-        const jsonMatch = aiResponse.response?.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            const result = JSON.parse(jsonMatch[0]);
-            if (result.ready) return result;
-        }
-    } catch (e) {
-        console.error('Booking Intent Error:', e);
-    }
+        const matched = res.response?.trim().replace(/^"|"$/g, '');
+        const found = (services as any[]).find(s => s.name.toLowerCase() === matched?.toLowerCase());
+        if (found) return { id: found.id, name: found.name, duration: found.duration_minutes };
+    } catch {}
     return null;
+}
+
+/** Extract stylist preference. Returns stylist object, 'any', or null if unclear. */
+export async function extractStylistFromMessage(
+    message: string,
+    stylists: { id: string; name: string }[],
+    env: any
+): Promise<{ id: string; name: string } | 'any' | null> {
+    const lower = message.toLowerCase();
+    if (/\bany\b|doesn't matter|no preference|whoever|available/i.test(lower)) return 'any';
+
+    const direct = stylists.find(s => lower.includes(s.name.toLowerCase().split(' ')[0]));
+    if (direct) return { id: direct.id, name: direct.name };
+
+    // LLM fallback
+    try {
+        const nameList = stylists.map(s => s.name).join(', ');
+        const res = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+            messages: [
+                { role: 'system', content: `Match to a stylist name from this list: ${nameList}. Return ONLY the exact name, "any", or "none".` },
+                { role: 'user', content: message }
+            ],
+            max_tokens: 20
+        });
+        const matched = res.response?.trim();
+        if (matched?.toLowerCase() === 'any') return 'any';
+        const found = stylists.find(s => s.name.toLowerCase() === matched?.toLowerCase());
+        if (found) return { id: found.id, name: found.name };
+    } catch {}
+    return null;
+}
+
+/** Parse a date from natural language. Returns YYYY-MM-DD or null. */
+export async function parseDateFromMessage(
+    message: string,
+    env: any
+): Promise<string | null> {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Colombo' }); // YYYY-MM-DD
+    try {
+        const res = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+            messages: [
+                { role: 'system', content: `Today is ${today} (Asia/Colombo). Extract the date the user mentions and return it as YYYY-MM-DD. Return ONLY the date string, nothing else. If no date, return "none".` },
+                { role: 'user', content: message }
+            ],
+            max_tokens: 15
+        });
+        const result = res.response?.trim();
+        if (result && /^\d{4}-\d{2}-\d{2}$/.test(result)) return result;
+    } catch {}
+    return null;
+}
+
+/** Parse a time from natural language. Returns HH:MM (24h) or null. */
+export async function parseTimeFromMessage(
+    message: string,
+    env: any
+): Promise<string | null> {
+    try {
+        const res = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+            messages: [
+                { role: 'system', content: 'Extract the time from the user\'s message. Return ONLY HH:MM in 24-hour format (e.g. "14:30"). If no time, return "none".' },
+                { role: 'user', content: message }
+            ],
+            max_tokens: 10
+        });
+        const result = res.response?.trim();
+        if (result && /^\d{2}:\d{2}$/.test(result)) return result;
+    } catch {}
+    return null;
+}
+
+/** Extract name and phone from a message. */
+export async function extractNamePhone(
+    message: string,
+    env: any
+): Promise<{ name: string; phone: string } | null> {
+    const phoneMatch = message.match(/(?:0|94|\+94)?7[0-9]{8}/);
+    if (!phoneMatch) return null;
+
+    try {
+        const res = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+            messages: [
+                { role: 'system', content: 'Extract the person\'s name and phone number. Return strictly JSON: {"name": "...", "phone": "..."}' },
+                { role: 'user', content: message }
+            ],
+            max_tokens: 60
+        });
+        const jsonMatch = res.response?.match(/\{[\s\S]*\}/);
+        if (jsonMatch) return JSON.parse(jsonMatch[0]);
+    } catch {}
+
+    return { name: 'Guest', phone: phoneMatch[0] };
 }

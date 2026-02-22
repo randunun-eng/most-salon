@@ -288,6 +288,14 @@ export async function runBookingStateMachine(
         state = { step: 'ask_service', retry_count: 0 };
     }
 
+    // Global greeting — always resets state and welcomes fresh, regardless of previous step
+    if (/^(hi|hello|hey|hiya|good\s*(morning|afternoon|evening)|howdy|greetings|sup|yo)\b/i.test(userMessage.trim())) {
+        return {
+            response: `Welcome to The MOST! How can I help you today?`,
+            newState: { step: 'ask_service', retry_count: 0 }
+        };
+    }
+
     // Global "start over" — user can reset from any step
     if (/\b(start over|restart|reset|cancel|new booking|forget it)\b/i.test(userMessage)) {
         return {
@@ -300,13 +308,6 @@ export async function runBookingStateMachine(
 
     // ── Step: ask_service ──────────────────────────────────────────────────
     if (step === 'ask_service') {
-        // Greetings — just welcome, don't dump the service list yet
-        if (/^(hi|hello|hey|hiya|good\s*(morning|afternoon|evening)|howdy|greetings|sup|yo)\b/i.test(userMessage.trim())) {
-            return {
-                response: `Welcome to The MOST! How can I help you today?`,
-                newState: state
-            };
-        }
 
         const service = await extractServiceFromMessage(userMessage, services, env);
         if (!service) {

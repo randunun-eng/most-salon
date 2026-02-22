@@ -83,6 +83,9 @@ export default function AdminPage() {
         start_time: '',
         notes: ''
     });
+    const [createDate, setCreateDate] = useState('');
+    const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+    const [slotsLoading, setSlotsLoading] = useState(false);
 
     // Login Logic
     const handleLogin = (e: React.FormEvent) => {
@@ -143,6 +146,28 @@ export default function AdminPage() {
         const interval = setInterval(() => fetchData(), 30000);
         return () => clearInterval(interval);
     }, [isAuthenticated]);
+
+    // Fetch available slots when service + stylist + date are all selected
+    useEffect(() => {
+        if (!newBooking.service_id || !newBooking.stylist_id || !createDate) {
+            setAvailableSlots([]);
+            return;
+        }
+        setSlotsLoading(true);
+        fetch(`/api/availability?date=${createDate}&serviceId=${newBooking.service_id}&stylistId=${newBooking.stylist_id}`)
+            .then(r => r.json())
+            .then(data => setAvailableSlots(Array.isArray(data.slots) ? data.slots : []))
+            .catch(() => setAvailableSlots([]))
+            .finally(() => setSlotsLoading(false));
+    }, [newBooking.service_id, newBooking.stylist_id, createDate]);
+
+    // Reset slot state when create dialog closes
+    useEffect(() => {
+        if (!isCreateOpen) {
+            setCreateDate('');
+            setAvailableSlots([]);
+        }
+    }, [isCreateOpen]);
 
     const updateGlobalSetting = async (key: string, value: string) => {
         try {
@@ -267,6 +292,8 @@ export default function AdminPage() {
                     client_name: '', client_email: '', client_phone: '',
                     service_id: '', stylist_id: '', start_time: '', notes: ''
                 });
+                setCreateDate('');
+                setAvailableSlots([]);
                 fetchData();
             } else {
                 alert('Failed to create booking');
@@ -869,7 +896,7 @@ export default function AdminPage() {
                             <div>
                                 <Label className="!text-gray-300">Service</Label>
                                 <select required className="w-full p-2 rounded-md !bg-neutral-800 !border-neutral-700 !text-white border"
-                                    value={newBooking.service_id} onChange={e => setNewBooking({ ...newBooking, service_id: e.target.value })}>
+                                    value={newBooking.service_id} onChange={e => setNewBooking({ ...newBooking, service_id: e.target.value, start_time: '' })}>
                                     <option value="">Select Service</option>
                                     {services.map(s => <option key={s.id} value={s.id}>{s.name} ({s.duration_minutes}m)</option>)}
                                 </select>
@@ -877,18 +904,42 @@ export default function AdminPage() {
                             <div>
                                 <Label className="!text-gray-300">Stylist</Label>
                                 <select required className="w-full p-2 rounded-md !bg-neutral-800 !border-neutral-700 !text-white border"
-                                    value={newBooking.stylist_id} onChange={e => setNewBooking({ ...newBooking, stylist_id: e.target.value })}>
+                                    value={newBooking.stylist_id} onChange={e => setNewBooking({ ...newBooking, stylist_id: e.target.value, start_time: '' })}>
                                     <option value="">Select Stylist</option>
                                     {stylists.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                 </select>
                             </div>
                         </div>
                         <div>
-                            <Label className="!text-gray-300">Start Time</Label>
-                            <Input required type="datetime-local" className="!bg-neutral-800 !border-neutral-700 !text-white"
-                                value={newBooking.start_time} onChange={e => setNewBooking({ ...newBooking, start_time: e.target.value })} />
+                            <Label className="!text-gray-300">Date</Label>
+                            <Input required type="date"
+                                min={new Date().toISOString().split('T')[0]}
+                                value={createDate}
+                                onChange={e => { setCreateDate(e.target.value); setNewBooking({ ...newBooking, start_time: '' }); }}
+                                className="!bg-neutral-800 !border-neutral-700 !text-white" />
                         </div>
-                        <Button type="submit" className="w-full bg-white text-black hover:bg-gray-200">Create Booking</Button>
+                        {createDate && newBooking.service_id && newBooking.stylist_id && (
+                            <div>
+                                <Label className="!text-gray-300">Available Time Slots</Label>
+                                {slotsLoading ? (
+                                    <p className="text-gray-400 text-sm py-2 flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin" /> Loading slots...</p>
+                                ) : availableSlots.length === 0 ? (
+                                    <p className="text-yellow-400 text-sm py-2">No available slots for this stylist on this day.</p>
+                                ) : (
+                                    <select required className="w-full p-2 rounded-md bg-neutral-800 border border-neutral-700 text-white"
+                                        value={newBooking.start_time}
+                                        onChange={e => setNewBooking({ ...newBooking, start_time: e.target.value })}>
+                                        <option value="">Select a time</option>
+                                        {availableSlots.map((slot: string) => (
+                                            <option key={slot} value={slot}>
+                                                {new Date(slot).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Colombo' })}
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                        )}
+                        <Button type="submit" disabled={!newBooking.start_time} className="w-full bg-white text-black hover:bg-gray-200 disabled:opacity-50">Create Booking</Button>
                     </form>
                 </DialogContent>
             </Dialog>

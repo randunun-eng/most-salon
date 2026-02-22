@@ -273,15 +273,36 @@ export async function runBookingStateMachine(
         state = { step: 'ask_service', retry_count: 0 };
     }
 
+    // After a completed booking, reset to fresh state on the next message
+    if (state.step === 'complete') {
+        state = { step: 'ask_service', retry_count: 0 };
+    }
+
+    // Global "start over" — user can reset from any step
+    if (/\b(start over|restart|reset|cancel|new booking|forget it)\b/i.test(userMessage)) {
+        return {
+            response: `No problem — let's start fresh! What service would you like?`,
+            newState: { step: 'ask_service', retry_count: 0 }
+        };
+    }
+
     let { step } = state;
 
     // ── Step: ask_service ──────────────────────────────────────────────────
     if (step === 'ask_service') {
+        // Greetings — just welcome, don't dump the service list yet
+        if (/^(hi|hello|hey|hiya|good\s*(morning|afternoon|evening)|howdy|greetings|sup|yo)\b/i.test(userMessage.trim())) {
+            return {
+                response: `Welcome to The MOST! How can I help you today?`,
+                newState: state
+            };
+        }
+
         const service = await extractServiceFromMessage(userMessage, services, env);
         if (!service) {
-            const serviceList = services.map((s: any) => `${s.name} (${s.price} LKR)`).join(', ');
+            const serviceList = services.map((s: any) => `${s.name} (${s.price} LKR)`).join('\n');
             return {
-                response: `Welcome to The MOST! What service would you like today?\n\nOur services: ${serviceList}`,
+                response: `What service would you like today?\n\n${serviceList}`,
                 newState: state
             };
         }

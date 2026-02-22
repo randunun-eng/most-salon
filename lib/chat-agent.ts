@@ -1,6 +1,7 @@
 
 import { D1Database } from './db-types';
-import { getServices, getStylists, getBookings } from './database';
+import { getServices, getStylists, getBookingsForStylist, createBooking, updateBooking, getGlobalSettings } from './database';
+import { createGoogleCalendarClient } from './google-calendar';
 
 interface AIEventAnalysis {
     serviceName: string;
@@ -252,4 +253,297 @@ export async function extractNamePhone(
     } catch {}
 
     return { name: 'Guest', phone: phoneMatch[0] };
+}
+
+/**
+ * Main state machine — called on every user message when AI mode is active.
+ * Returns the bot's deterministic response text and updated state.
+ */
+export async function runBookingStateMachine(
+    state: any,
+    userMessage: string,
+    env: any,
+    db: D1Database
+): Promise<{ response: string; newState: any }> {
+    const services = await getServices(db);
+    const stylists = await getStylists(db, true);
+
+    // Initialize state for new conversations
+    if (!state || !state.step) {
+        state = { step: 'ask_service', retry_count: 0 };
+    }
+
+    let { step } = state;
+
+    // ── Step: ask_service ──────────────────────────────────────────────────
+    if (step === 'ask_service') {
+        const service = await extractServiceFromMessage(userMessage, services, env);
+        if (!service) {
+            const serviceList = services.map((s: any) => `${s.name} (${s.price} LKR)`).join(', ');
+            return {
+                response: `Welcome to The MOST! What service would you like today?\n\nOur services: ${serviceList}`,
+                newState: state
+            };
+        }
+        const newState = { ...state, step: 'ask_stylist', service_id: service.id, service_name: service.name, service_duration: service.duration };
+        const stylistNames = stylists.map((s: any) => s.name).join(', ');
+        return {
+            response: `Great choice — ${service.name}! Do you have a preferred stylist?\n\nOur team: ${stylistNames}\n\nOr just say "any" and I'll find whoever's free.`,
+            newState
+        };
+    }
+
+    // ── Step: ask_stylist ──────────────────────────────────────────────────
+    if (step === 'ask_stylist') {
+        const stylistResult = await extractStylistFromMessage(userMessage, stylists, env);
+        if (!stylistResult) {
+            const stylistNames = stylists.map((s: any) => s.name).join(', ');
+            return {
+                response: `Who would you prefer? Our stylists: ${stylistNames} — or say "any" for whoever's free.`,
+                newState: state
+            };
+        }
+        const stylistId = stylistResult === 'any' ? 'any' : (stylistResult as any).id;
+        const stylistName = stylistResult === 'any' ? 'any available stylist' : (stylistResult as any).name;
+        const newState = { ...state, step: 'ask_date', stylist_id: stylistId, stylist_name: stylistName };
+        return {
+            response: `Perfect! What date would you like to come in?`,
+            newState
+        };
+    }
+
+    // ── Step: ask_date ─────────────────────────────────────────────────────
+    if (step === 'ask_date') {
+        const date = await parseDateFromMessage(userMessage, env);
+        if (!date) {
+            return {
+                response: `What date works for you? (e.g. "tomorrow", "Friday", "March 5th")`,
+                newState: state
+            };
+        }
+        const newState = { ...state, step: 'ask_time', date, time: undefined };
+        return {
+            response: `${date} — sounds good! What time would you like?`,
+            newState
+        };
+    }
+
+    // ── Step: ask_time + availability check ───────────────────────────────
+    if (step === 'ask_time') {
+        const time = await parseTimeFromMessage(userMessage, env);
+        if (!time) {
+            return {
+                response: `What time works for you? (e.g. "3pm", "10:30", "2:00 PM")`,
+                newState: state
+            };
+        }
+
+        // Build datetime and check availability
+        const startTime = new Date(`${state.date}T${time}:00+05:30`);
+        const endTime = new Date(startTime.getTime() + (state.service_duration || 60) * 60 * 1000);
+
+        let targetStylistId: string | null = null;
+        let targetStylistName = '';
+
+        if (state.stylist_id === 'any') {
+            for (const stylist of stylists) {
+                const bookings = await getBookingsForStylist(db, (stylist as any).id, startTime);
+                const busy = bookings.some((b: any) =>
+                    b.status === 'confirmed' &&
+                    startTime < b.end_time && endTime > b.start_time
+                );
+                if (!busy) {
+                    targetStylistId = (stylist as any).id;
+                    targetStylistName = (stylist as any).name;
+                    break;
+                }
+            }
+        } else {
+            const bookings = await getBookingsForStylist(db, state.stylist_id, startTime);
+            const busy = bookings.some((b: any) =>
+                b.status === 'confirmed' &&
+                startTime < b.end_time && endTime > b.start_time
+            );
+            if (!busy) {
+                targetStylistId = state.stylist_id;
+                targetStylistName = state.stylist_name;
+            }
+        }
+
+        if (targetStylistId) {
+            const newState = { ...state, step: 'ask_name_phone', time, stylist_id: targetStylistId, stylist_name: targetStylistName, retry_count: 0 };
+            return {
+                response: `${targetStylistName} is free at ${formatTime(time)} on ${state.date}.\n\nWhat's your name and phone number so I can lock that in?`,
+                newState
+            };
+        }
+
+        // NOT AVAILABLE
+        const retryCount = (state.retry_count || 0) + 1;
+
+        if (retryCount >= 3) {
+            const newState = { ...state, step: 'ask_date', time: undefined, retry_count: 0 };
+            return {
+                response: `Sorry, we're quite booked around that time. Would you like to try a different date?`,
+                newState
+            };
+        }
+
+        const alts = await findAlternativeSlots(db, state, stylists, startTime, state.service_duration || 60);
+        const altText = alts.length > 0 ? `\n\nAvailable times: ${alts.join(', ')}` : '';
+        const newState = { ...state, time: undefined, retry_count: retryCount };
+        return {
+            response: `Sorry, that slot isn't available.${altText}\n\nWhat time would you prefer?`,
+            newState
+        };
+    }
+
+    // ── Step: ask_name_phone ───────────────────────────────────────────────
+    if (step === 'ask_name_phone') {
+        const contact = await extractNamePhone(userMessage, env);
+        if (!contact || !contact.phone) {
+            return {
+                response: `Could you share your name and phone number? (e.g. "John Silva, 0771234567")`,
+                newState: state
+            };
+        }
+        const newState = { ...state, step: 'confirm', name: contact.name, phone: contact.phone };
+        const timeFormatted = formatTime(state.time);
+        return {
+            response: `Just to confirm your booking:\n\n` +
+                `📋 Service: ${state.service_name}\n` +
+                `💇 Stylist: ${state.stylist_name}\n` +
+                `📅 Date: ${state.date}\n` +
+                `⏰ Time: ${timeFormatted}\n` +
+                `👤 Name: ${contact.name}\n` +
+                `📞 Phone: ${contact.phone}\n\n` +
+                `Shall I confirm this? (yes / no)`,
+            newState
+        };
+    }
+
+    // ── Step: confirm ──────────────────────────────────────────────────────
+    if (step === 'confirm') {
+        const lower = userMessage.toLowerCase().trim();
+
+        if (/^(yes|yeah|yep|confirm|ok|sure|correct|book it|please)/i.test(lower)) {
+            const startTime = new Date(`${state.date}T${state.time}:00+05:30`);
+            const endTime = new Date(startTime.getTime() + (state.service_duration || 60) * 60 * 1000);
+
+            try {
+                const booking = await createBooking(db, {
+                    client_name: state.name,
+                    client_email: `${state.name.toLowerCase().replace(/\s+/g, '')}@guest.com`,
+                    client_phone: state.phone,
+                    service_id: state.service_id,
+                    stylist_id: state.stylist_id,
+                    start_time: startTime,
+                    end_time: endTime,
+                    status: 'confirmed',
+                });
+
+                // Push to Google Calendar (non-fatal)
+                try {
+                    const gcal = createGoogleCalendarClient(env);
+                    const stylist = stylists.find((s: any) => s.id === state.stylist_id);
+                    const service = services.find((s: any) => s.id === state.service_id);
+                    const eventId = await gcal.createEvent(booking, (service as any)?.name || state.service_name, (stylist as any)?.name || state.stylist_name);
+                    await updateBooking(db, booking.id, { google_event_id: eventId });
+                } catch (gcalErr) {
+                    console.error('GCal push failed:', gcalErr);
+                }
+
+                // Build WhatsApp link for owner notification
+                let waLink = '';
+                try {
+                    const settings = await getGlobalSettings(db);
+                    const ownerPhone = settings['owner_whatsapp'];
+                    if (ownerPhone) {
+                        const msg = `New booking!\nClient: ${state.name}\nPhone: ${state.phone}\nService: ${state.service_name}\nStylist: ${state.stylist_name}\nDate: ${state.date} ${formatTime(state.time)}\nRef: ${booking.id}`;
+                        waLink = `\n\nNotify salon: https://wa.me/${ownerPhone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
+                    }
+                } catch {}
+
+                const newState = { ...state, step: 'complete', booking_id: booking.id };
+                return {
+                    response: `You're all booked! See you at The MOST on ${state.date} at ${formatTime(state.time)}. ✨${waLink}`,
+                    newState
+                };
+            } catch (err) {
+                console.error('Booking creation failed:', err);
+                return {
+                    response: `Sorry, I had trouble confirming that. Please call us directly to book.`,
+                    newState: state
+                };
+            }
+        }
+
+        if (/^(no|nope|cancel|change|wrong)/i.test(lower)) {
+            const newState = { step: 'ask_service', retry_count: 0 };
+            return {
+                response: `No problem! Let's start fresh. What service would you like?`,
+                newState
+            };
+        }
+
+        return {
+            response: `Just say "yes" to confirm or "no" to start over.`,
+            newState: state
+        };
+    }
+
+    // ── Step: complete ─────────────────────────────────────────────────────
+    if (step === 'complete') {
+        return {
+            response: `Your booking is confirmed! Is there anything else I can help with?`,
+            newState: state
+        };
+    }
+
+    // Fallback — reset
+    return {
+        response: `Welcome to The MOST! What service would you like today?`,
+        newState: { step: 'ask_service', retry_count: 0 }
+    };
+}
+
+/** Format HH:MM (24h) to human-readable "3:30 PM" */
+function formatTime(time: string): string {
+    const [h, m] = time.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const hour = h % 12 || 12;
+    return `${hour}:${m.toString().padStart(2, '0')} ${period}`;
+}
+
+/** Find up to 3 alternative time slots on the same date */
+async function findAlternativeSlots(
+    db: D1Database,
+    state: any,
+    stylists: any[],
+    aroundTime: Date,
+    durationMinutes: number
+): Promise<string[]> {
+    const alts: string[] = [];
+    const stylistsToCheck = state.stylist_id === 'any' ? stylists : stylists.filter((s: any) => s.id === state.stylist_id);
+
+    for (const stylist of stylistsToCheck) {
+        const bookings = await getBookingsForStylist(db, stylist.id, aroundTime);
+        for (const offset of [-60, 30, 60, 90, 120]) {
+            const candidate = new Date(aroundTime.getTime() + offset * 60 * 1000);
+            const candEnd = new Date(candidate.getTime() + durationMinutes * 60 * 1000);
+            const busy = bookings.some((b: any) =>
+                b.status === 'confirmed' &&
+                candidate < b.end_time && candEnd > b.start_time
+            );
+            if (!busy && candidate > new Date()) {
+                const h = candidate.getUTCHours();
+                const m = candidate.getUTCMinutes();
+                const hh = String(h).padStart(2, '0');
+                const mm = String(m).padStart(2, '0');
+                alts.push(`${formatTime(`${hh}:${mm}`)} (${stylist.name})`);
+                if (alts.length >= 3) return alts;
+            }
+        }
+    }
+    return alts;
 }

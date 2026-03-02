@@ -14,7 +14,6 @@ import {
     MessageSquare,
     Scissors,
     Loader2,
-    Edit2,
     Trash2,
     Palmtree,
     RefreshCw
@@ -37,14 +36,6 @@ import AdminChat from '@/components/admin/AdminChat';
 import AdminServices from '@/components/admin/AdminServices';
 
 type AdminView = 'dashboard' | 'inbox' | 'services' | 'team' | 'settings';
-
-const statusColors: Record<string, string> = {
-    pending: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
-    confirmed: 'bg-green-500/10 text-green-500 border-green-500/20',
-    completed: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
-    'no-show': 'bg-red-500/10 text-red-500 border-red-500/20',
-    cancelled: 'bg-gray-500/10 text-gray-500 border-gray-500/20'
-};
 
 export default function AdminPage() {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -477,21 +468,6 @@ export default function AdminPage() {
     };
 
     // Cancel Booking
-    const handleCancel = async (id: string) => {
-        if (!confirm('Are you sure you want to cancel this booking?')) return;
-
-        try {
-            const res = await fetch(`/api/bookings?id=${id}`, {
-                method: 'DELETE'
-            });
-
-            if (res.ok) {
-                fetchData();
-            }
-        } catch (err) {
-            console.error(err);
-        }
-    };
 
     const formatTime = (iso: string | Date) => {
         return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -722,139 +698,8 @@ export default function AdminPage() {
                             </div>
                         </div>
 
-                        <div className="bg-neutral-900 border !border-neutral-800 rounded-2xl overflow-hidden">
-                            {/* Desktop Table */}
-                            <div className="hidden md:block overflow-x-auto">
-                                <table className="w-full text-left text-sm">
-                                    <thead className="text-xs uppercase bg-neutral-800 text-gray-400 border-b !border-neutral-700">
-                                        <tr>
-                                            <th className="px-6 py-4">Status</th>
-                                            <th className="px-6 py-4">Time</th>
-                                            <th className="px-6 py-4">Client</th>
-                                            <th className="px-6 py-4">Service / Stylist</th>
-                                            <th className="px-6 py-4 text-right">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y !divide-neutral-800">
-                                        {selectedDateBookings.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                                                    No appointments for this date.
-                                                </td>
-                                            </tr>
-                                        ) : selectedDateBookings.map(b => (
-                                            <tr key={b.id} className="hover:!bg-white/5 transition-colors group">
-                                                <td className="px-6 py-4">
-                                                    <span className={cn("px-2 py-1 rounded text-[10px] font-bold tracking-wider border uppercase", statusColors[b.status])}>
-                                                        {b.status}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 font-medium !text-white whitespace-nowrap">
-                                                    {formatTime(b.start_time)}
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="font-medium !text-white">{b.client_name}</div>
-                                                    <div className="text-xs text-gray-500">{b.client_phone}</div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="text-gray-300">{services.find(s => s.id === b.service_id)?.name}</div>
-                                                    <div className="text-xs text-gray-500">with {stylists.find(s => s.id === b.stylist_id)?.name}</div>
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-8 w-8 text-green-400 hover:!bg-green-400/10"
-                                                            title="WhatsApp Message"
-                                                            onClick={() => {
-                                                                const time = formatTime(b.start_time);
-                                                                const service = services.find(s => s.id === b.service_id)?.name;
-                                                                const message = `Hello ${b.client_name}, this is Most Salon. Just confirming your appointment for ${service} at ${time} on ${date.toDateString()}. See you then!`;
-
-                                                                // Clean and format phone number for Sri Lanka
-                                                                let phone = b.client_phone.replace(/[^0-9]/g, '');
-                                                                if (phone.startsWith('0') && phone.length === 10) {
-                                                                    phone = '94' + phone.substring(1);
-                                                                }
-
-                                                                window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`, '_blank');
-                                                            }}
-                                                        >
-                                                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72 1.017 3.518 1.554 5.362 1.555h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" /></svg>
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-8 w-8 text-blue-400 hover:!bg-blue-400/10"
-                                                            onClick={() => { setEditingBooking(b); setIsEditOpen(true); }}
-                                                        >
-                                                            <Edit2 className="w-3 h-3" />
-                                                        </Button>
-                                                        {b.status !== 'cancelled' && (
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-8 w-8 text-red-400 hover:!bg-red-400/10"
-                                                                onClick={() => handleCancel(b.id)}
-                                                            >
-                                                                <Trash2 className="w-3 h-3" />
-                                                            </Button>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            {/* Mobile Card View */}
-                            <div className="md:hidden divide-y divide-neutral-800">
-                                {selectedDateBookings.length === 0 ? (
-                                    <div className="px-4 py-12 text-center text-gray-500">No appointments for this date.</div>
-                                ) : selectedDateBookings.map(b => (
-                                    <div key={b.id} className="p-4 space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <span className={cn("px-2 py-1 rounded text-[10px] font-bold tracking-wider border uppercase", statusColors[b.status])}>
-                                                {b.status}
-                                            </span>
-                                            <span className="font-medium text-white text-sm">{formatTime(b.start_time)}</span>
-                                        </div>
-                                        <div>
-                                            <div className="font-medium text-white">{b.client_name}</div>
-                                            <div className="text-xs text-gray-500">{b.client_phone}</div>
-                                        </div>
-                                        <div>
-                                            <div className="text-gray-300 text-sm">{services.find(s => s.id === b.service_id)?.name}</div>
-                                            <div className="text-xs text-gray-500">with {stylists.find(s => s.id === b.stylist_id)?.name}</div>
-                                        </div>
-                                        <div className="flex gap-2 pt-1">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-green-400 hover:!bg-green-400/10" title="WhatsApp"
-                                                onClick={() => {
-                                                    const time = formatTime(b.start_time);
-                                                    const service = services.find(s => s.id === b.service_id)?.name;
-                                                    const message = `Hello ${b.client_name}, this is Most Salon. Just confirming your appointment for ${service} at ${time} on ${date.toDateString()}. See you then!`;
-                                                    let phone = b.client_phone.replace(/[^0-9]/g, '');
-                                                    if (phone.startsWith('0') && phone.length === 10) phone = '94' + phone.substring(1);
-                                                    window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`, '_blank');
-                                                }}>
-                                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72 1.017 3.518 1.554 5.362 1.555h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" /></svg>
-                                            </Button>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-400 hover:!bg-blue-400/10"
-                                                onClick={() => { setEditingBooking(b); setIsEditOpen(true); }}>
-                                                <Edit2 className="w-3 h-3" />
-                                            </Button>
-                                            {b.status !== 'cancelled' && (
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:!bg-red-400/10"
-                                                    onClick={() => handleCancel(b.id)}>
-                                                    <Trash2 className="w-3 h-3" />
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                        <div className="rounded-2xl border border-dashed border-neutral-800 bg-neutral-950 p-4 text-xs text-gray-400">
+                            Detailed appointment rows are hidden. Use the timeline blocks and click each stylist calendar event for details.
                         </div>
                     </div>
                 )}

@@ -36,11 +36,10 @@ import {
 } from '../lib/database';
 import {
     generateSlotsForStylist,
-    generateSlotsAllStylists,
     filterFutureSlots
 } from '../lib/slot-engine';
 import { generateAIResponse, extractContactInfo, runBookingStateMachine } from '../lib/chat-agent';
-import { createGoogleCalendarClient } from '../lib/google-calendar';
+import { createGoogleCalendarClient, GoogleCalendarClient } from '../lib/google-calendar';
 
 interface Env {
     ASSETS: { fetch: (request: Request) => Promise<Response> };
@@ -417,6 +416,57 @@ async function syncWithGoogleCalendar(env: Env, start: Date, end: Date): Promise
     }
 }
 
+
+async function getCalendarClientsForStylist(env: Env, stylistId: string): Promise<GoogleCalendarClient[]> {
+    const clients: GoogleCalendarClient[] = [];
+    const seen = new Set<string>();
+
+    const integration = await getStylistIntegration(env.DB, stylistId);
+    const stylistClientId = integration?.google_client_id || env.GOOGLE_CLIENT_ID;
+    const stylistClientSecret = integration?.google_client_secret || env.GOOGLE_CLIENT_SECRET;
+    const stylistRefreshToken = integration?.google_refresh_token;
+
+    if (stylistClientId && stylistClientSecret && stylistRefreshToken) {
+        const key = `${stylistClientId}|${stylistClientSecret}|${stylistRefreshToken}|${integration?.calendar_id || 'primary'}`;
+        if (!seen.has(key)) {
+            clients.push(new GoogleCalendarClient({
+                clientId: stylistClientId,
+                clientSecret: stylistClientSecret,
+                refreshToken: stylistRefreshToken,
+                calendarId: integration?.calendar_id || 'primary'
+            }));
+            seen.add(key);
+        }
+    }
+
+    if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
+        const ownerCalendarId = env.GOOGLE_CALENDAR_ID || 'primary';
+        const key = `${env.GOOGLE_CLIENT_ID}|${env.GOOGLE_CLIENT_SECRET}|${env.GOOGLE_REFRESH_TOKEN}|${ownerCalendarId}`;
+        if (!seen.has(key)) {
+            clients.push(createGoogleCalendarClient(env));
+            seen.add(key);
+        }
+    }
+
+    return clients;
+}
+
+async function getExternalBusySlotsForStylist(env: Env, stylistId: string, date: Date): Promise<{ start: Date; end: Date }[]> {
+    const clients = await getCalendarClientsForStylist(env, stylistId);
+    const busySlots: { start: Date; end: Date }[] = [];
+
+    for (const client of clients) {
+        try {
+            const slots = await client.getBusySlots(date);
+            busySlots.push(...slots.map(s => ({ start: s.start, end: s.end })));
+        } catch (error) {
+            console.error(`Failed to fetch busy slots for stylist ${stylistId}:`, error);
+        }
+    }
+
+    return busySlots;
+}
+
 async function handleAvailability(url: URL, env: Env): Promise<Response> {
     const dateStr = url.searchParams.get('date');
     const serviceId = url.searchParams.get('serviceId');
@@ -453,19 +503,12 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
     // It does NOT import "Doctor Appt" as a booking yet unless we fully implemented that.
     // Let's stick to the previous pattern: Fetch GCal busy slots for blocking, AND sync internal bookings.
 
-    let externalBusySlots: { start: Date, end: Date }[] = [];
-    try {
-        if (env.GOOGLE_CLIENT_ID) {
-            const calendar = createGoogleCalendarClient(env);
-            externalBusySlots = await calendar.getBusySlots(date);
-        }
-    } catch (e) { console.error(e); }
-
     if (stylistId && stylistId !== 'any') {
         const stylist = await getStylist(env.DB, stylistId);
         if (!stylist) return json({ error: 'Stylist not found' }, 404);
 
         const bookings = await getBookingsForStylist(env.DB, stylistId, date);
+        const externalBusySlots = await getExternalBusySlotsForStylist(env, stylistId, date);
         const slots = generateSlotsForStylist(stylist, date, service.duration_minutes, bookings, externalBusySlots, businessHours, holidays);
 
         return json({
@@ -475,15 +518,26 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
         });
     }
 
-    // Auto-assign mode
+    // Auto-assign mode: calculate per stylist using each stylist's calendar + owner calendar.
     const stylists = await getStylists(env.DB, true);
-    const bookingsByStyleist = new Map();
+    const aggregatedSlots: { start: Date; end: Date; stylist_id: string; stylist_name: string }[] = [];
+
     for (const stylist of stylists) {
-        bookingsByStyleist.set(stylist.id, await getBookingsForStylist(env.DB, stylist.id, date));
+        const bookings = await getBookingsForStylist(env.DB, stylist.id, date);
+        const externalBusySlots = await getExternalBusySlotsForStylist(env, stylist.id, date);
+        const slots = generateSlotsForStylist(stylist, date, service.duration_minutes, bookings, externalBusySlots, businessHours, holidays);
+
+        for (const slot of filterFutureSlots(slots)) {
+            aggregatedSlots.push({
+                start: slot,
+                end: new Date(slot.getTime() + service.duration_minutes * 60000),
+                stylist_id: stylist.id,
+                stylist_name: stylist.name,
+            });
+        }
     }
 
-    const allSlots = generateSlotsAllStylists(stylists, date, service.duration_minutes, bookingsByStyleist, externalBusySlots, businessHours, holidays);
-    const futureSlots = allSlots.filter(slot => slot.start > new Date());
+    const futureSlots = aggregatedSlots.sort((a, b) => a.start.getTime() - b.start.getTime());
 
     return json({
         slots: futureSlots.map(slot => ({
@@ -550,30 +604,22 @@ async function handleCreateBooking(request: Request, env: Env): Promise<Response
         status: 'confirmed',
     });
 
-    // Sync to Google Calendar
+    // Sync to stylist calendar and salon-owner calendar
     try {
-        let calendar = null;
+        const calendars = await getCalendarClientsForStylist(env, stylist_id);
+        let firstEventId: string | null = null;
 
-        // 1. Try Stylist Integration
-        const integration = await getStylistIntegration(env.DB, stylist_id);
-        if (integration && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
-            const { GoogleCalendarClient } = await import('../lib/google-calendar');
-            calendar = new GoogleCalendarClient({
-                clientId: integration.google_client_id || env.GOOGLE_CLIENT_ID,
-                clientSecret: integration.google_client_secret || env.GOOGLE_CLIENT_SECRET,
-                refreshToken: integration.google_refresh_token,
-                calendarId: integration.calendar_id || 'primary'
-            });
+        for (const calendar of calendars) {
+            try {
+                const eventId = await calendar.createEvent(booking, service.name, stylist.name);
+                if (!firstEventId) firstEventId = eventId;
+            } catch (calendarError) {
+                console.error('Google Calendar create sync failed (non-fatal):', calendarError);
+            }
         }
 
-        // 2. Fallback to Global Environment
-        if (!calendar && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
-            calendar = createGoogleCalendarClient(env);
-        }
-
-        if (calendar) {
-            const eventId = await calendar.createEvent(booking, service.name, stylist.name);
-            const updated = await updateBooking(env.DB, booking.id, { google_event_id: eventId });
+        if (firstEventId) {
+            const updated = await updateBooking(env.DB, booking.id, { google_event_id: firstEventId });
             if (updated) booking = updated;
         }
     } catch (calendarError) {
@@ -634,27 +680,17 @@ async function handleEditBooking(request: Request, env: Env): Promise<Response> 
     if (!booking) return json({ error: 'Booking not found' }, 404);
 
     try {
-        let calendar = null;
-        const integration = await getStylistIntegration(env.DB, booking.stylist_id);
-        if (integration && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
-            const { GoogleCalendarClient } = await import('../lib/google-calendar');
-            calendar = new GoogleCalendarClient({
-                clientId: integration.google_client_id || env.GOOGLE_CLIENT_ID,
-                clientSecret: integration.google_client_secret || env.GOOGLE_CLIENT_SECRET,
-                refreshToken: integration.google_refresh_token,
-                calendarId: integration.calendar_id || 'primary'
-            });
-        }
+        const calendars = await getCalendarClientsForStylist(env, booking.stylist_id);
+        const service = await getService(env.DB, booking.service_id);
+        const stylist = await getStylist(env.DB, booking.stylist_id);
 
-        if (!calendar && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
-            calendar = createGoogleCalendarClient(env);
-        }
-
-        if (calendar) {
-            const service = await getService(env.DB, booking.service_id);
-            const stylist = await getStylist(env.DB, booking.stylist_id);
-            if (service && stylist) {
-                await calendar.updateEvent(booking, service.name, stylist.name);
+        if (service && stylist) {
+            for (const calendar of calendars) {
+                try {
+                    await calendar.updateEvent(booking, service.name, stylist.name);
+                } catch (e) {
+                    console.error('Calendar update failed (non-fatal)', e);
+                }
             }
         }
     } catch (e) {
@@ -674,24 +710,13 @@ async function handleDeleteBooking(request: Request, env: Env): Promise<Response
     if (!booking) return json({ error: 'Booking not found' }, 404);
 
     try {
-        let calendar = null;
-        const integration = await getStylistIntegration(env.DB, booking.stylist_id);
-        if (integration && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
-            const { GoogleCalendarClient } = await import('../lib/google-calendar');
-            calendar = new GoogleCalendarClient({
-                clientId: integration.google_client_id || env.GOOGLE_CLIENT_ID,
-                clientSecret: integration.google_client_secret || env.GOOGLE_CLIENT_SECRET,
-                refreshToken: integration.google_refresh_token,
-                calendarId: integration.calendar_id || 'primary'
-            });
-        }
-
-        if (!calendar && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
-            calendar = createGoogleCalendarClient(env);
-        }
-
-        if (calendar) {
-            await calendar.deleteEvent(booking.id);
+        const calendars = await getCalendarClientsForStylist(env, booking.stylist_id);
+        for (const calendar of calendars) {
+            try {
+                await calendar.deleteEvent(booking.id);
+            } catch (e) {
+                console.error('Calendar delete failed (non-fatal)', e);
+            }
         }
     } catch (e) {
         console.error('Calendar delete failed', e);

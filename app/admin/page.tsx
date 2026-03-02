@@ -73,6 +73,7 @@ export default function AdminPage() {
     const [isStylistCalendarOpen, setIsStylistCalendarOpen] = useState(false);
     const [stylistCalendarEvents, setStylistCalendarEvents] = useState<any[]>([]);
     const [stylistCalendarLoading, setStylistCalendarLoading] = useState(false);
+    const [selectedStylistEvent, setSelectedStylistEvent] = useState<any | null>(null);
     const [editingStylist, setEditingStylist] = useState<{ id: string; name: string; phone: string }>({ id: '', name: '', phone: '' });
 
     // Edit State
@@ -265,6 +266,7 @@ export default function AdminPage() {
 
     const openStylistCalendar = (stylist: Stylist) => {
         setActiveStylistId(stylist.id);
+        setSelectedStylistEvent(null);
         setIsStylistCalendarOpen(true);
         fetchStylistCalendar(stylist.id);
     };
@@ -371,6 +373,21 @@ export default function AdminPage() {
         return start >= weekStart && start < new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000) && b.status !== 'cancelled';
     });
 
+    const stylistPalette = [
+        'bg-blue-600/80 border-blue-400/40',
+        'bg-emerald-600/80 border-emerald-400/40',
+        'bg-purple-600/80 border-purple-400/40',
+        'bg-orange-600/80 border-orange-400/40',
+        'bg-pink-600/80 border-pink-400/40',
+        'bg-cyan-600/80 border-cyan-400/40',
+        'bg-lime-600/80 border-lime-400/40'
+    ];
+
+    const colorByStylistId = stylists.reduce<Record<string, string>>((acc, stylist, index) => {
+        acc[stylist.id] = stylistPalette[index % stylistPalette.length];
+        return acc;
+    }, {});
+
     const dayKey = (d: Date) => d.toISOString().split('T')[0];
 
     const toTopPercent = (dateValue: string | Date) => {
@@ -384,6 +401,12 @@ export default function AdminPage() {
         const end = new Date(endValue).getTime();
         const mins = Math.max(15, (end - start) / 60000);
         return Math.max(2, (mins / (24 * 60)) * 100);
+    };
+
+    const formatEventTimeRange = (start: string | Date, end: string | Date) => {
+        const startDate = new Date(start);
+        const endDate = new Date(end);
+        return `${startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     };
 
 
@@ -653,7 +676,17 @@ export default function AdminPage() {
                         </div>
 
                         <div className="mb-6 md:mb-10 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-                            <h3 className="text-sm font-semibold text-white mb-3">Weekly Timeline (Google-style overview)</h3>
+                            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                                <h3 className="text-sm font-semibold text-white">Weekly Timeline</h3>
+                                <div className="flex flex-wrap gap-2">
+                                    {stylists.map((stylist) => (
+                                        <span key={stylist.id} className="inline-flex items-center gap-1.5 rounded-full border border-neutral-700 px-2 py-1 text-[10px] text-gray-300">
+                                            <span className={cn('inline-block h-2 w-2 rounded-full', colorByStylistId[stylist.id]?.split(' ')[0])} />
+                                            {stylist.name}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
                             <div className="grid grid-cols-7 gap-2">
                                 {weekDays.map((d) => {
                                     const dayBookings = weekBookings.filter((b) => dayKey(new Date(b.start_time)) === dayKey(d));
@@ -670,14 +703,16 @@ export default function AdminPage() {
                                                     const top = toTopPercent(b.start_time);
                                                     const height = toHeightPercent(b.start_time, b.end_time);
                                                     return (
-                                                        <div
+                                                        <button
+                                                            type="button"
                                                             key={b.id}
-                                                            className="absolute left-1 right-1 rounded bg-blue-600/80 px-1 py-0.5 text-[9px] text-white overflow-hidden"
+                                                            className={cn('absolute left-1 right-1 rounded border px-1 py-0.5 text-[9px] text-white overflow-hidden text-left', colorByStylistId[b.stylist_id] || 'bg-blue-600/80 border-blue-400/40')}
                                                             style={{ top: `${top}%`, height: `${height}%` }}
-                                                            title={`${b.client_name} - ${services.find(s => s.id === b.service_id)?.name || 'Service'}`}
+                                                            title={`${b.client_name} • ${services.find(s => s.id === b.service_id)?.name || 'Service'} • ${stylists.find(s => s.id === b.stylist_id)?.name || 'Stylist'}`}
                                                         >
-                                                            {b.client_name}
-                                                        </div>
+                                                            <div className="truncate font-medium">{b.client_name}</div>
+                                                            <div className="truncate opacity-90">{stylists.find(s => s.id === b.stylist_id)?.name || 'Stylist'}</div>
+                                                        </button>
                                                     );
                                                 })}
                                             </div>
@@ -1054,12 +1089,12 @@ export default function AdminPage() {
             <Dialog open={isStylistCalendarOpen} onOpenChange={setIsStylistCalendarOpen}>
                 <DialogContent className="!bg-neutral-900 !border-neutral-800 !text-white sm:max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle className="!text-white text-xl">Stylist Calendar (Today + 7 days)</DialogTitle>
+                        <DialogTitle className="!text-white text-xl">Stylist Calendar (7 days)</DialogTitle>
                     </DialogHeader>
                     {stylistCalendarLoading ? (
                         <div className="text-sm text-gray-400">Loading calendar...</div>
                     ) : (
-                        <div className="max-h-[65vh] overflow-y-auto">
+                        <div className="max-h-[65vh] overflow-y-auto space-y-3">
                             <div className="grid grid-cols-7 gap-2">
                                 {weekDays.map((d) => {
                                     const dayEvents = stylistCalendarEvents.filter((event) => dayKey(new Date(event.start)) === dayKey(d));
@@ -1076,14 +1111,17 @@ export default function AdminPage() {
                                                     const top = toTopPercent(event.start);
                                                     const height = toHeightPercent(event.start, event.end);
                                                     return (
-                                                        <div
+                                                        <button
+                                                            type="button"
                                                             key={`${event.id}-${idx}`}
-                                                            className={`absolute left-1 right-1 rounded px-1 py-0.5 text-[9px] text-white overflow-hidden ${event.source === 'google' ? 'bg-emerald-600/80' : 'bg-blue-600/80'}`}
+                                                            onClick={() => setSelectedStylistEvent(event)}
+                                                            className={`absolute left-1 right-1 rounded border px-1 py-0.5 text-[9px] text-white overflow-hidden text-left ${event.source === 'google' ? 'bg-emerald-600/80 border-emerald-400/40' : 'bg-blue-600/80 border-blue-400/40'}`}
                                                             style={{ top: `${top}%`, height: `${height}%` }}
-                                                            title={`${event.title} (${event.source})`}
+                                                            title={`${event.title} • ${formatEventTimeRange(event.start, event.end)} • ${event.source}`}
                                                         >
-                                                            {event.title}
-                                                        </div>
+                                                            <div className="truncate font-medium">{event.title}</div>
+                                                            <div className="truncate opacity-90">{new Date(event.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                                        </button>
                                                     );
                                                 })}
                                             </div>
@@ -1091,9 +1129,17 @@ export default function AdminPage() {
                                     );
                                 })}
                             </div>
+                            {selectedStylistEvent && (
+                                <div className="rounded-lg border border-neutral-700 bg-neutral-800 p-3 text-sm">
+                                    <div className="font-semibold text-white">{selectedStylistEvent.title}</div>
+                                    <div className="mt-1 text-gray-300">{formatEventTimeRange(selectedStylistEvent.start, selectedStylistEvent.end)}</div>
+                                    <div className="mt-1 text-xs uppercase tracking-wide text-gray-400">Source: {selectedStylistEvent.source === 'google' ? 'Google Calendar' : 'Salon Booking DB'}</div>
+                                    {selectedStylistEvent.description && <p className="mt-2 text-gray-400">{selectedStylistEvent.description}</p>}
+                                </div>
+                            )}
                         </div>
                     )}
-                    <p className="text-[11px] text-gray-500">Auto-sync refreshes every 1 minute while this window is open. Blue = salon bookings, Green = Google calendar.</p>
+                    <p className="text-[11px] text-gray-500">Click an event to view details. Auto-sync refreshes every 1 minute while this window is open.</p>
                 </DialogContent>
             </Dialog>
 

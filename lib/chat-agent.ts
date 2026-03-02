@@ -1,6 +1,6 @@
 
 import { D1Database } from './db-types';
-import { getServices, getStylists, getBookingsForStylist, createBooking, updateBooking, getGlobalSettings } from './database';
+import { getServices, getStylists, getBookings, getBookingsForStylist, createBooking, updateBooking, getGlobalSettings } from './database';
 import { createGoogleCalendarClient } from './google-calendar';
 
 interface AIEventAnalysis {
@@ -13,6 +13,14 @@ interface AIEventAnalysis {
     stylistId?: string;
     notes?: string;
     confidence: number;
+}
+
+export interface BookingIntent {
+    serviceId: string;
+    stylistId: string;
+    dateTime: string;
+    name: string;
+    phone: string;
 }
 
 export async function generateAIResponse(
@@ -263,6 +271,84 @@ export async function extractNamePhone(
     } catch {}
 
     return { name: 'Guest', phone: phoneMatch[0] };
+}
+
+/**
+ * Extract a complete booking intent from conversation history.
+ * Returns null until all mandatory fields are confidently present.
+ */
+export async function extractBookingIntent(
+    history: { role: string; content: string }[],
+    env: any,
+    db: D1Database
+): Promise<BookingIntent | null> {
+    const services = await getServices(db);
+    const stylists = await getStylists(db, true);
+
+    if (!services.length || !stylists.length) return null;
+
+    const serviceOptions = services.map(s => s.name).join(', ');
+    const stylistOptions = stylists.map(s => s.name).join(', ');
+
+    try {
+        const aiResponse = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
+            messages: [
+                {
+                    role: 'system',
+                    content: `Extract booking data from the conversation.
+Return ONLY strict JSON:
+{"serviceName":"...|none","stylistName":"...|none","dateTime":"ISO_8601|none","name":"...|none","phone":"...|none"}
+Valid services: ${serviceOptions}
+Valid stylists: ${stylistOptions}
+Rules:
+- dateTime must include timezone offset (prefer +05:30 for Sri Lanka).
+- If any value is missing or unclear, return "none" for that field.
+- No markdown, no explanations.`
+                },
+                {
+                    role: 'user',
+                    content: history.map(m => `${m.role}: ${m.content}`).join('\n')
+                }
+            ],
+            max_tokens: 200
+        });
+
+        const jsonMatch = aiResponse.response?.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return null;
+
+        const parsed = JSON.parse(jsonMatch[0]) as {
+            serviceName?: string;
+            stylistName?: string;
+            dateTime?: string;
+            name?: string;
+            phone?: string;
+        };
+
+        const service = services.find(s => s.name.toLowerCase() === (parsed.serviceName || '').toLowerCase());
+        const stylist = stylists.find(s => s.name.toLowerCase() === (parsed.stylistName || '').toLowerCase());
+        const name = (parsed.name || '').trim();
+        const phone = (parsed.phone || '').replace(/\s+/g, '');
+        const dateTime = (parsed.dateTime || '').trim();
+
+        if (!service || !stylist) return null;
+        if (!name || name.toLowerCase() === 'none') return null;
+        if (!/(?:0|94|\+94)?7[0-9]{8}/.test(phone)) return null;
+        if (!dateTime || dateTime.toLowerCase() === 'none') return null;
+
+        const parsedDate = new Date(dateTime);
+        if (Number.isNaN(parsedDate.getTime())) return null;
+
+        return {
+            serviceId: service.id,
+            stylistId: stylist.id,
+            dateTime: parsedDate.toISOString(),
+            name,
+            phone
+        };
+    } catch (error) {
+        console.error('Booking intent extraction failed:', error);
+        return null;
+    }
 }
 
 /**

@@ -64,9 +64,16 @@ export default function AdminPage() {
     const [holidays, setHolidays] = useState<any[]>([]);
     const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
     const [isAddingStylist, setIsAddingStylist] = useState(false);
-    const [newStylist, setNewStylist] = useState({ name: '', calendar_id: '' });
+    const [newStylist, setNewStylist] = useState({ name: '', phone: '', calendar_id: '', google_refresh_token: '', google_client_id: '', google_client_secret: '' });
     const [isAddingHoliday, setIsAddingHoliday] = useState(false);
     const [newHoliday, setNewHoliday] = useState({ date: '', reason: '', stylist_id: '' });
+    const [integrationByStylist, setIntegrationByStylist] = useState<Record<string, any>>({});
+    const [activeStylistId, setActiveStylistId] = useState<string | null>(null);
+    const [isStylistSettingsOpen, setIsStylistSettingsOpen] = useState(false);
+    const [isStylistCalendarOpen, setIsStylistCalendarOpen] = useState(false);
+    const [stylistCalendarEvents, setStylistCalendarEvents] = useState<any[]>([]);
+    const [stylistCalendarLoading, setStylistCalendarLoading] = useState(false);
+    const [editingStylist, setEditingStylist] = useState<{ id: string; name: string; phone: string }>({ id: '', name: '', phone: '' });
 
     // Edit State
     const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -114,13 +121,30 @@ export default function AdminPage() {
             const sData = await sRes.json();
             const svData = await svRes.json();
 
+            const stylistList = Array.isArray(sData) ? sData : [];
             setBookings(Array.isArray(bData) ? bData : []);
-            setStylists(Array.isArray(sData) ? sData : []);
+            setStylists(stylistList);
             setServices(Array.isArray(svData) ? svData : []);
+            fetchStylistIntegrations(stylistList);
         } catch (err) {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchStylistIntegrations = async (stylistList: Stylist[]) => {
+        try {
+            const pairs = await Promise.all(
+                stylistList.map(async (stylist) => {
+                    const res = await fetch(`/api/stylists/integration?id=${stylist.id}`);
+                    if (!res.ok) return [stylist.id, null] as const;
+                    return [stylist.id, await res.json()] as const;
+                })
+            );
+            setIntegrationByStylist(Object.fromEntries(pairs));
+        } catch (err) {
+            console.error(err);
         }
     };
 
@@ -189,19 +213,25 @@ export default function AdminPage() {
             const res = await fetch('/api/stylists', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newStylist.name })
+                body: JSON.stringify({ name: newStylist.name, phone: newStylist.phone })
             });
             if (res.ok) {
                 const created = await res.json();
-                if (newStylist.calendar_id) {
+                if (newStylist.calendar_id || newStylist.google_refresh_token || newStylist.google_client_id || newStylist.google_client_secret) {
                     await fetch('/api/stylists/integration', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ stylist_id: created.id, calendar_id: newStylist.calendar_id })
+                        body: JSON.stringify({
+                            stylist_id: created.id,
+                            calendar_id: newStylist.calendar_id || 'primary',
+                            google_refresh_token: newStylist.google_refresh_token,
+                            google_client_id: newStylist.google_client_id,
+                            google_client_secret: newStylist.google_client_secret
+                        })
                     });
                 }
                 setIsAddingStylist(false);
-                setNewStylist({ name: '', calendar_id: '' });
+                setNewStylist({ name: '', phone: '', calendar_id: '', google_refresh_token: '', google_client_id: '', google_client_secret: '' });
                 fetchData();
             }
         } catch (err) {
@@ -219,14 +249,72 @@ export default function AdminPage() {
         }
     };
 
-    const updateStylistCalendar = async (stylistId: string, calendarId: string) => {
+    const updateStylistCalendar = async (stylistId: string, updates: Record<string, string>) => {
         try {
+            const current = integrationByStylist[stylistId] || {};
+            const payload = {
+                stylist_id: stylistId,
+                calendar_id: updates.calendar_id ?? current.calendar_id ?? 'primary',
+                google_refresh_token: updates.google_refresh_token ?? current.google_refresh_token ?? '',
+                google_client_id: updates.google_client_id ?? current.google_client_id ?? '',
+                google_client_secret: updates.google_client_secret ?? current.google_client_secret ?? ''
+            };
             await fetch('/api/stylists/integration', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stylist_id: stylistId, calendar_id: calendarId })
+                body: JSON.stringify(payload)
             });
-            // Show some mini success state if needed
+            setIntegrationByStylist(prev => ({ ...prev, [stylistId]: { ...current, ...payload } }));
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+
+    const openStylistSettings = (stylist: Stylist) => {
+        setActiveStylistId(stylist.id);
+        setEditingStylist({ id: stylist.id, name: stylist.name, phone: stylist.phone || '' });
+        setIsStylistSettingsOpen(true);
+    };
+
+    const openStylistCalendar = (stylist: Stylist) => {
+        setActiveStylistId(stylist.id);
+        setIsStylistCalendarOpen(true);
+        fetchStylistCalendar(stylist.id);
+    };
+
+    const fetchStylistCalendar = async (stylistId: string) => {
+        try {
+            setStylistCalendarLoading(true);
+            const res = await fetch(`/api/stylists/calendar?id=${stylistId}`);
+            const data = await res.json();
+            setStylistCalendarEvents(Array.isArray(data.events) ? data.events : []);
+        } catch (err) {
+            console.error(err);
+            setStylistCalendarEvents([]);
+        } finally {
+            setStylistCalendarLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!isStylistCalendarOpen || !activeStylistId) return;
+        const timer = setInterval(() => fetchStylistCalendar(activeStylistId), 60000);
+        return () => clearInterval(timer);
+    }, [isStylistCalendarOpen, activeStylistId]);
+
+    const saveStylistProfile = async () => {
+        if (!editingStylist.id) return;
+        try {
+            const res = await fetch('/api/stylists', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: editingStylist.id, name: editingStylist.name, phone: editingStylist.phone })
+            });
+            if (res.ok) {
+                await fetchData();
+                setIsStylistSettingsOpen(false);
+            }
         } catch (err) {
             console.error(err);
         }
@@ -318,6 +406,24 @@ export default function AdminPage() {
             if (res.ok) {
                 setIsEditOpen(false);
                 fetchData();
+                return;
+            }
+
+            if (res.status === 409) {
+                const data = await res.json();
+                const conflictStart = data?.conflict?.start_time ? new Date(data.conflict.start_time).toLocaleString() : 'Unknown';
+                const proceed = confirm(`Conflict detected at ${conflictStart}. This may overlap another booking. Override and save anyway?`);
+                if (proceed) {
+                    const forceRes = await fetch('/api/bookings', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...editingBooking, force_override: true })
+                    });
+                    if (forceRes.ok) {
+                        setIsEditOpen(false);
+                        fetchData();
+                    }
+                }
             }
         } catch (err) {
             console.error(err);
@@ -683,26 +789,19 @@ export default function AdminPage() {
                         <div className="grid grid-cols-1 gap-4">
                             {stylists.map(s => (
                                 <Card key={s.id} className={cn("!bg-neutral-900 !border-neutral-800", !s.is_active && "opacity-50")}>
-                                    <CardContent className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                        <div className="flex-1">
+                                    <CardContent className="p-4 flex items-center justify-between gap-4">
+                                        <button type="button" onClick={() => openStylistCalendar(s)} className="text-left flex-1">
                                             <div className="font-medium !text-white text-lg">{s.name} {!s.is_active && "(Inactive)"}</div>
-                                            <div className="text-xs text-gray-500 mt-1">ID: {s.id}</div>
-                                        </div>
-
-                                        <div className="flex-1 max-w-md">
-                                            <Label className="text-[10px] uppercase text-gray-500 mb-1 block">Google Calendar ID</Label>
-                                            <div className="flex gap-2">
-                                                <Input
-                                                    defaultValue={s.calendar_id || ''}
-                                                    placeholder="email@gmail.com or 'primary'"
-                                                    className="h-8 !bg-neutral-800 !border-neutral-700 !text-sm !text-white"
-                                                    onBlur={(e) => updateStylistCalendar(s.id, e.target.value)}
-                                                />
-                                            </div>
-                                            <p className="text-[9px] text-gray-600 mt-1 italic">Leaves field to sync with main salon calendar.</p>
-                                        </div>
+                                            <div className="text-xs text-gray-400 mt-1">{s.phone || 'No phone number'}</div>
+                                        </button>
 
                                         <div className="flex gap-2">
+                                            <Button variant="outline" size="sm" className="!border-neutral-700" onClick={() => openStylistCalendar(s)}>
+                                                <CalendarIcon className="w-4 h-4 mr-2" /> Calendar
+                                            </Button>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-white" onClick={() => openStylistSettings(s)}>
+                                                <Settings className="w-4 h-4" />
+                                            </Button>
                                             {s.is_active && (
                                                 <Button
                                                     variant="ghost"
@@ -893,6 +992,65 @@ export default function AdminPage() {
                 </div>
             </nav>
 
+            {/* Stylist Calendar Modal */}
+            <Dialog open={isStylistCalendarOpen} onOpenChange={setIsStylistCalendarOpen}>
+                <DialogContent className="!bg-neutral-900 !border-neutral-800 !text-white sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="!text-white text-xl">Stylist Calendar (Today + 7 days)</DialogTitle>
+                    </DialogHeader>
+                    <div className="max-h-[65vh] overflow-y-auto space-y-2 pt-2">
+                        {stylistCalendarLoading ? (
+                            <div className="text-sm text-gray-400">Loading calendar...</div>
+                        ) : stylistCalendarEvents.length === 0 ? (
+                            <div className="text-sm text-gray-400">No appointments or leaves in the 7-day window.</div>
+                        ) : stylistCalendarEvents.map((event, idx) => (
+                            <div key={`${event.id}-${idx}`} className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
+                                <div className="text-sm font-medium text-white">{event.title}</div>
+                                <div className="text-xs text-gray-400 mt-1">{new Date(event.start).toLocaleString()} → {new Date(event.end).toLocaleString()}</div>
+                                <div className="text-[11px] text-gray-500 mt-1 uppercase tracking-wide">{event.source} · {event.status || 'active'}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <p className="text-[11px] text-gray-500">Auto-sync refreshes every 1 minute while this window is open.</p>
+                </DialogContent>
+            </Dialog>
+
+            {/* Stylist Settings Modal */}
+            <Dialog open={isStylistSettingsOpen} onOpenChange={setIsStylistSettingsOpen}>
+                <DialogContent className="!bg-neutral-900 !border-neutral-800 !text-white sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="!text-white text-xl">Stylist Settings</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 pt-2">
+                        <div>
+                            <Label className="!text-gray-300">Stylist Name</Label>
+                            <Input value={editingStylist.name} onChange={(e) => setEditingStylist(prev => ({ ...prev, name: e.target.value }))} className="!bg-neutral-800 !border-neutral-700 !text-white" />
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Phone Number</Label>
+                            <Input value={editingStylist.phone} onChange={(e) => setEditingStylist(prev => ({ ...prev, phone: e.target.value }))} className="!bg-neutral-800 !border-neutral-700 !text-white" />
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Google Calendar ID</Label>
+                            <Input defaultValue={activeStylistId ? (integrationByStylist[activeStylistId]?.calendar_id || '') : ''} onBlur={(e) => activeStylistId && updateStylistCalendar(activeStylistId, { calendar_id: e.target.value })} className="!bg-neutral-800 !border-neutral-700 !text-white" />
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Google OAuth Client ID</Label>
+                            <Input defaultValue={activeStylistId ? (integrationByStylist[activeStylistId]?.google_client_id || '') : ''} onBlur={(e) => activeStylistId && updateStylistCalendar(activeStylistId, { google_client_id: e.target.value })} className="!bg-neutral-800 !border-neutral-700 !text-white" />
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Google OAuth Client Secret</Label>
+                            <Input type="password" defaultValue={activeStylistId ? (integrationByStylist[activeStylistId]?.google_client_secret || '') : ''} onBlur={(e) => activeStylistId && updateStylistCalendar(activeStylistId, { google_client_secret: e.target.value })} className="!bg-neutral-800 !border-neutral-700 !text-white" />
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Google Refresh Token</Label>
+                            <Input type="password" defaultValue={activeStylistId ? (integrationByStylist[activeStylistId]?.google_refresh_token || '') : ''} onBlur={(e) => activeStylistId && updateStylistCalendar(activeStylistId, { google_refresh_token: e.target.value })} className="!bg-neutral-800 !border-neutral-700 !text-white" />
+                        </div>
+                        <Button className="w-full bg-white text-black" onClick={saveStylistProfile}>Save Profile</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             {/* Add Stylist Modal */}
             <Dialog open={isAddingStylist} onOpenChange={setIsAddingStylist}>
                 <DialogContent className="!bg-neutral-900 !border-neutral-800 !text-white sm:max-w-md">
@@ -910,6 +1068,15 @@ export default function AdminPage() {
                             />
                         </div>
                         <div>
+                            <Label className="!text-gray-300">WhatsApp Number</Label>
+                            <Input
+                                placeholder="+9477XXXXXXX"
+                                value={newStylist.phone}
+                                onChange={e => setNewStylist({ ...newStylist, phone: e.target.value })}
+                                className="!bg-neutral-800 !border-neutral-700 !text-white"
+                            />
+                        </div>
+                        <div>
                             <Label className="!text-gray-300">Google Calendar ID (Optional)</Label>
                             <Input
                                 placeholder="email@gmail.com or 'primary'"
@@ -917,7 +1084,35 @@ export default function AdminPage() {
                                 onChange={e => setNewStylist({ ...newStylist, calendar_id: e.target.value })}
                                 className="!bg-neutral-800 !border-neutral-700 !text-white"
                             />
-                            <p className="text-[10px] text-gray-500 mt-1">If empty, it will use the main salon calendar.</p>
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Google OAuth Client ID (Optional)</Label>
+                            <Input
+                                placeholder="xxxx.apps.googleusercontent.com"
+                                value={newStylist.google_client_id}
+                                onChange={e => setNewStylist({ ...newStylist, google_client_id: e.target.value })}
+                                className="!bg-neutral-800 !border-neutral-700 !text-white"
+                            />
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Google OAuth Client Secret (Optional)</Label>
+                            <Input
+                                type="password"
+                                placeholder="GOCSPX-..."
+                                value={newStylist.google_client_secret}
+                                onChange={e => setNewStylist({ ...newStylist, google_client_secret: e.target.value })}
+                                className="!bg-neutral-800 !border-neutral-700 !text-white"
+                            />
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Google OAuth Refresh Token (Optional)</Label>
+                            <Input
+                                placeholder="1//0g...."
+                                value={newStylist.google_refresh_token}
+                                onChange={e => setNewStylist({ ...newStylist, google_refresh_token: e.target.value })}
+                                className="!bg-neutral-800 !border-neutral-700 !text-white"
+                            />
+                            <p className="text-[10px] text-gray-500 mt-1">Save stylist calendar credentials here to avoid future code deployments.</p>
                         </div>
                         <Button type="submit" className="w-full bg-white text-black hover:bg-gray-200">Create Stylist</Button>
                     </form>

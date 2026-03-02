@@ -74,11 +74,13 @@ export class GoogleCalendarClient {
         const token = await this.getAccessToken();
 
         const now = new Date();
-        const sevenDaysLater = new Date(now);
-        sevenDaysLater.setDate(now.getDate() + 7);
+        const startOfToday = new Date(now);
+        startOfToday.setHours(0, 0, 0, 0);
+        const sevenDaysLater = new Date(startOfToday);
+        sevenDaysLater.setDate(startOfToday.getDate() + 7);
 
         const params = new URLSearchParams({
-            timeMin: now.toISOString(),
+            timeMin: startOfToday.toISOString(),
             timeMax: sevenDaysLater.toISOString(),
             singleEvents: 'true',
             orderBy: 'startTime',

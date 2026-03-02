@@ -41,11 +41,12 @@ export async function getStylist(db: D1Database, id: string): Promise<Stylist | 
 export async function createStylist(db: D1Database, data: any): Promise<Stylist> {
     const id = `stylist-${Date.now()}`;
     await db.prepare(
-        `INSERT INTO stylists (id, name, working_days, start_time, end_time, is_active)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO stylists (id, name, phone, working_days, start_time, end_time, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).bind(
         id,
         data.name,
+        data.phone || null,
         JSON.stringify(data.working_days || [0, 1, 2, 3, 4, 5, 6]),
         data.start_time || '09:00',
         data.end_time || '19:00',
@@ -60,6 +61,7 @@ export async function updateStylist(db: D1Database, id: string, updates: any): P
     const values = [];
 
     if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
+    if (updates.phone !== undefined) { sets.push('phone = ?'); values.push(updates.phone); }
     if (updates.working_days !== undefined) { sets.push('working_days = ?'); values.push(JSON.stringify(updates.working_days)); }
     if (updates.start_time !== undefined) { sets.push('start_time = ?'); values.push(updates.start_time); }
     if (updates.end_time !== undefined) { sets.push('end_time = ?'); values.push(updates.end_time); }
@@ -317,20 +319,35 @@ export async function getStylistIntegration(db: D1Database, stylistId: string): 
 }
 
 export async function saveStylistIntegration(db: D1Database, data: any): Promise<void> {
+    const existing: any = await db.prepare('SELECT id FROM stylist_integrations WHERE stylist_id = ?').bind(data.stylist_id).first();
+
     await db.prepare(
-        `INSERT INTO stylist_integrations (id, stylist_id, google_access_token, google_refresh_token, calendar_id, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
+        `INSERT INTO stylist_integrations (
+            id,
+            stylist_id,
+            google_access_token,
+            google_refresh_token,
+            calendar_id,
+            google_client_id,
+            google_client_secret,
+            updated_at
+        )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(stylist_id) DO UPDATE SET
             google_access_token = excluded.google_access_token,
             google_refresh_token = excluded.google_refresh_token,
             calendar_id = excluded.calendar_id,
+            google_client_id = excluded.google_client_id,
+            google_client_secret = excluded.google_client_secret,
             updated_at = excluded.updated_at`
     ).bind(
-        data.id || `${data.stylist_id}-google`,
+        existing?.id || data.id || `${data.stylist_id}-google`,
         data.stylist_id,
-        data.google_access_token,
-        data.google_refresh_token,
-        data.calendar_id,
+        data.google_access_token || null,
+        data.google_refresh_token || null,
+        data.calendar_id || null,
+        data.google_client_id || null,
+        data.google_client_secret || null,
         new Date().toISOString()
     ).run();
 }

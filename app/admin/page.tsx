@@ -64,7 +64,7 @@ export default function AdminPage() {
     const [holidays, setHolidays] = useState<any[]>([]);
     const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
     const [isAddingStylist, setIsAddingStylist] = useState(false);
-    const [newStylist, setNewStylist] = useState({ name: '', calendar_id: '' });
+    const [newStylist, setNewStylist] = useState({ name: '', phone: '', calendar_id: '', google_refresh_token: '' });
     const [isAddingHoliday, setIsAddingHoliday] = useState(false);
     const [newHoliday, setNewHoliday] = useState({ date: '', reason: '', stylist_id: '' });
 
@@ -189,19 +189,23 @@ export default function AdminPage() {
             const res = await fetch('/api/stylists', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newStylist.name })
+                body: JSON.stringify({ name: newStylist.name, phone: newStylist.phone })
             });
             if (res.ok) {
                 const created = await res.json();
-                if (newStylist.calendar_id) {
+                if (newStylist.calendar_id || newStylist.google_refresh_token) {
                     await fetch('/api/stylists/integration', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ stylist_id: created.id, calendar_id: newStylist.calendar_id })
+                        body: JSON.stringify({
+                            stylist_id: created.id,
+                            calendar_id: newStylist.calendar_id || 'primary',
+                            google_refresh_token: newStylist.google_refresh_token
+                        })
                     });
                 }
                 setIsAddingStylist(false);
-                setNewStylist({ name: '', calendar_id: '' });
+                setNewStylist({ name: '', phone: '', calendar_id: '', google_refresh_token: '' });
                 fetchData();
             }
         } catch (err) {
@@ -219,14 +223,13 @@ export default function AdminPage() {
         }
     };
 
-    const updateStylistCalendar = async (stylistId: string, calendarId: string) => {
+    const updateStylistCalendar = async (stylistId: string, calendarId: string, refreshToken?: string) => {
         try {
             await fetch('/api/stylists/integration', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stylist_id: stylistId, calendar_id: calendarId })
+                body: JSON.stringify({ stylist_id: stylistId, calendar_id: calendarId, google_refresh_token: refreshToken })
             });
-            // Show some mini success state if needed
         } catch (err) {
             console.error(err);
         }
@@ -318,6 +321,24 @@ export default function AdminPage() {
             if (res.ok) {
                 setIsEditOpen(false);
                 fetchData();
+                return;
+            }
+
+            if (res.status === 409) {
+                const data = await res.json();
+                const conflictStart = data?.conflict?.start_time ? new Date(data.conflict.start_time).toLocaleString() : 'Unknown';
+                const proceed = confirm(`Conflict detected at ${conflictStart}. This may overlap another booking. Override and save anyway?`);
+                if (proceed) {
+                    const forceRes = await fetch('/api/bookings', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...editingBooking, force_override: true })
+                    });
+                    if (forceRes.ok) {
+                        setIsEditOpen(false);
+                        fetchData();
+                    }
+                }
             }
         } catch (err) {
             console.error(err);
@@ -687,6 +708,7 @@ export default function AdminPage() {
                                         <div className="flex-1">
                                             <div className="font-medium !text-white text-lg">{s.name} {!s.is_active && "(Inactive)"}</div>
                                             <div className="text-xs text-gray-500 mt-1">ID: {s.id}</div>
+                                            <div className="text-xs text-gray-400 mt-1">WhatsApp: {s.phone || 'Not set'}</div>
                                         </div>
 
                                         <div className="flex-1 max-w-md">
@@ -910,6 +932,15 @@ export default function AdminPage() {
                             />
                         </div>
                         <div>
+                            <Label className="!text-gray-300">WhatsApp Number</Label>
+                            <Input
+                                placeholder="+9477XXXXXXX"
+                                value={newStylist.phone}
+                                onChange={e => setNewStylist({ ...newStylist, phone: e.target.value })}
+                                className="!bg-neutral-800 !border-neutral-700 !text-white"
+                            />
+                        </div>
+                        <div>
                             <Label className="!text-gray-300">Google Calendar ID (Optional)</Label>
                             <Input
                                 placeholder="email@gmail.com or 'primary'"
@@ -917,7 +948,16 @@ export default function AdminPage() {
                                 onChange={e => setNewStylist({ ...newStylist, calendar_id: e.target.value })}
                                 className="!bg-neutral-800 !border-neutral-700 !text-white"
                             />
-                            <p className="text-[10px] text-gray-500 mt-1">If empty, it will use the main salon calendar.</p>
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Google OAuth Refresh Token (Optional)</Label>
+                            <Input
+                                placeholder="1//0g...."
+                                value={newStylist.google_refresh_token}
+                                onChange={e => setNewStylist({ ...newStylist, google_refresh_token: e.target.value })}
+                                className="!bg-neutral-800 !border-neutral-700 !text-white"
+                            />
+                            <p className="text-[10px] text-gray-500 mt-1">Without token, stylist will use salon-level Google credentials.</p>
                         </div>
                         <Button type="submit" className="w-full bg-white text-black hover:bg-gray-200">Create Stylist</Button>
                     </form>

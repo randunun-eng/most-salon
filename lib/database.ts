@@ -41,11 +41,12 @@ export async function getStylist(db: D1Database, id: string): Promise<Stylist | 
 export async function createStylist(db: D1Database, data: any): Promise<Stylist> {
     const id = `stylist-${Date.now()}`;
     await db.prepare(
-        `INSERT INTO stylists (id, name, working_days, start_time, end_time, is_active)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO stylists (id, name, phone, working_days, start_time, end_time, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).bind(
         id,
         data.name,
+        data.phone || null,
         JSON.stringify(data.working_days || [0, 1, 2, 3, 4, 5, 6]),
         data.start_time || '09:00',
         data.end_time || '19:00',
@@ -60,6 +61,7 @@ export async function updateStylist(db: D1Database, id: string, updates: any): P
     const values = [];
 
     if (updates.name !== undefined) { sets.push('name = ?'); values.push(updates.name); }
+    if (updates.phone !== undefined) { sets.push('phone = ?'); values.push(updates.phone); }
     if (updates.working_days !== undefined) { sets.push('working_days = ?'); values.push(JSON.stringify(updates.working_days)); }
     if (updates.start_time !== undefined) { sets.push('start_time = ?'); values.push(updates.start_time); }
     if (updates.end_time !== undefined) { sets.push('end_time = ?'); values.push(updates.end_time); }

@@ -22,6 +22,7 @@ import {
     updateStylist,
     deleteStylist,
     updateStylistIntegration,
+    saveStylistIntegration,
     getChat,
     createChat,
     addMessage,
@@ -155,7 +156,13 @@ export default {
 
             if (path === '/api/stylists' && method === 'POST') {
                 const body = await request.json();
-                return json(await createStylist(env.DB, body), 201);
+                return json(await createStylist(env.DB, {
+                    name: body.name,
+                    phone: body.phone,
+                    working_days: body.working_days,
+                    start_time: body.start_time,
+                    end_time: body.end_time
+                }), 201);
             }
 
             if (path === '/api/stylists' && method === 'PUT') {
@@ -177,8 +184,19 @@ export default {
                     return json(await getStylistIntegration(env.DB, id));
                 }
                 if (method === 'POST') {
-                    const { stylist_id, calendar_id } = await request.json();
-                    await updateStylistIntegration(env.DB, stylist_id, calendar_id);
+                    const { stylist_id, calendar_id, google_refresh_token, google_access_token } = await request.json() as any;
+                    if (!stylist_id) return json({ error: 'Missing stylist_id' }, 400);
+
+                    if (google_refresh_token || google_access_token) {
+                        await saveStylistIntegration(env.DB, {
+                            stylist_id,
+                            calendar_id: calendar_id || 'primary',
+                            google_refresh_token: google_refresh_token || '',
+                            google_access_token: google_access_token || ''
+                        });
+                    } else {
+                        await updateStylistIntegration(env.DB, stylist_id, calendar_id || 'primary');
+                    }
                     return json({ success: true });
                 }
             }
@@ -368,7 +386,7 @@ async function syncWithGoogleCalendar(env: Env, start: Date, end: Date): Promise
 
     try {
         const calendar = createGoogleCalendarClient(env);
-        const blockedRanges = await calendar.getBusySlots(start, end);
+        const blockedRanges = await calendar.getBusySlots(start);
 
         if (blockedRanges.length > 0) {
             for (const range of blockedRanges) {
@@ -467,6 +485,25 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
 }
 // ... (skip other handlers) ...
 
+function isOverlapping(startA: Date, endA: Date, startB: Date, endB: Date): boolean {
+    return startA < endB && endA > startB;
+}
+
+async function findBookingConflict(
+    env: Env,
+    stylistId: string,
+    startTime: Date,
+    endTime: Date,
+    excludeBookingId?: string
+): Promise<any | null> {
+    const bookings = await getBookingsForStylist(env.DB, stylistId, startTime);
+    return bookings.find((b: any) =>
+        b.id !== excludeBookingId &&
+        ['confirmed', 'pending'].includes(b.status) &&
+        isOverlapping(startTime, endTime, b.start_time, b.end_time)
+    ) || null;
+}
+
 async function handleCreateBooking(request: Request, env: Env): Promise<Response> {
     const body: any = await request.json();
     const { client_name, client_email, client_phone, service_id, stylist_id, start_time } = body;
@@ -484,6 +521,14 @@ async function handleCreateBooking(request: Request, env: Env): Promise<Response
     const startTime = new Date(start_time);
     const endTime = new Date(startTime);
     endTime.setMinutes(endTime.getMinutes() + service.duration_minutes);
+
+    const conflict = await findBookingConflict(env, stylist_id, startTime, endTime);
+    if (conflict) {
+        return json({
+            error: "Requested slot overlaps with an existing booking",
+            conflict
+        }, 409);
+    }
 
     let booking = await createBooking(env.DB, {
         client_name, client_email, client_phone, service_id, stylist_id,
@@ -542,12 +587,35 @@ async function handleUpdateBooking(request: Request, env: Env): Promise<Response
 
 async function handleEditBooking(request: Request, env: Env): Promise<Response> {
     const body: any = await request.json();
-    const { id, ...updates } = body;
+    const { id, force_override, ...updates } = body;
 
     if (!id) return json({ error: 'Missing id' }, 400);
 
     if (updates.start_time) updates.start_time = new Date(updates.start_time);
     if (updates.end_time) updates.end_time = new Date(updates.end_time);
+
+    const existing = await env.DB.prepare('SELECT * FROM bookings WHERE id = ?').bind(id).first() as any;
+    if (!existing) return json({ error: 'Booking not found' }, 404);
+
+    const nextStylistId = updates.stylist_id || existing.stylist_id;
+    const nextStart = updates.start_time || new Date(existing.start_time);
+
+    let nextEnd = updates.end_time ? updates.end_time : new Date(existing.end_time);
+    if (!updates.end_time && (updates.start_time || updates.service_id)) {
+        const nextService = await getService(env.DB, updates.service_id || existing.service_id);
+        const duration = nextService?.duration_minutes || Math.max(15, Math.round((new Date(existing.end_time).getTime() - new Date(existing.start_time).getTime()) / 60000));
+        nextEnd = new Date(nextStart.getTime() + duration * 60000);
+        updates.end_time = nextEnd;
+    }
+
+    const conflict = await findBookingConflict(env, nextStylistId, nextStart, nextEnd, id);
+    if (conflict && !force_override) {
+        return json({
+            error: "Amended slot overlaps with an existing booking",
+            requires_acknowledgement: true,
+            conflict
+        }, 409);
+    }
 
     const booking = await updateBooking(env.DB, id, updates);
     if (!booking) return json({ error: 'Booking not found' }, 404);

@@ -184,15 +184,28 @@ export default {
                     return json(await getStylistIntegration(env.DB, id));
                 }
                 if (method === 'POST') {
-                    const { stylist_id, calendar_id, google_refresh_token, google_access_token } = await request.json() as any;
+                    const {
+                        stylist_id,
+                        calendar_id,
+                        google_refresh_token,
+                        google_access_token,
+                        google_client_id,
+                        google_client_secret
+                    } = await request.json() as any;
                     if (!stylist_id) return json({ error: 'Missing stylist_id' }, 400);
 
-                    if (google_refresh_token || google_access_token) {
+                    const current = await getStylistIntegration(env.DB, stylist_id);
+                    const hasOauthPayload = [google_refresh_token, google_access_token, google_client_id, google_client_secret]
+                        .some(v => typeof v === 'string' && v.length > 0);
+
+                    if (hasOauthPayload || current?.google_refresh_token || current?.google_client_id || current?.google_client_secret) {
                         await saveStylistIntegration(env.DB, {
                             stylist_id,
-                            calendar_id: calendar_id || 'primary',
-                            google_refresh_token: google_refresh_token || '',
-                            google_access_token: google_access_token || ''
+                            calendar_id: calendar_id ?? current?.calendar_id ?? 'primary',
+                            google_refresh_token: google_refresh_token ?? current?.google_refresh_token ?? '',
+                            google_access_token: google_access_token ?? current?.google_access_token ?? '',
+                            google_client_id: google_client_id ?? current?.google_client_id ?? '',
+                            google_client_secret: google_client_secret ?? current?.google_client_secret ?? ''
                         });
                     } else {
                         await updateStylistIntegration(env.DB, stylist_id, calendar_id || 'primary');
@@ -546,8 +559,8 @@ async function handleCreateBooking(request: Request, env: Env): Promise<Response
         if (integration && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
             const { GoogleCalendarClient } = await import('../lib/google-calendar');
             calendar = new GoogleCalendarClient({
-                clientId: env.GOOGLE_CLIENT_ID,
-                clientSecret: env.GOOGLE_CLIENT_SECRET,
+                clientId: integration.google_client_id || env.GOOGLE_CLIENT_ID,
+                clientSecret: integration.google_client_secret || env.GOOGLE_CLIENT_SECRET,
                 refreshToken: integration.google_refresh_token,
                 calendarId: integration.calendar_id || 'primary'
             });
@@ -626,8 +639,8 @@ async function handleEditBooking(request: Request, env: Env): Promise<Response> 
         if (integration && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
             const { GoogleCalendarClient } = await import('../lib/google-calendar');
             calendar = new GoogleCalendarClient({
-                clientId: env.GOOGLE_CLIENT_ID,
-                clientSecret: env.GOOGLE_CLIENT_SECRET,
+                clientId: integration.google_client_id || env.GOOGLE_CLIENT_ID,
+                clientSecret: integration.google_client_secret || env.GOOGLE_CLIENT_SECRET,
                 refreshToken: integration.google_refresh_token,
                 calendarId: integration.calendar_id || 'primary'
             });
@@ -666,8 +679,8 @@ async function handleDeleteBooking(request: Request, env: Env): Promise<Response
         if (integration && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
             const { GoogleCalendarClient } = await import('../lib/google-calendar');
             calendar = new GoogleCalendarClient({
-                clientId: env.GOOGLE_CLIENT_ID,
-                clientSecret: env.GOOGLE_CLIENT_SECRET,
+                clientId: integration.google_client_id || env.GOOGLE_CLIENT_ID,
+                clientSecret: integration.google_client_secret || env.GOOGLE_CLIENT_SECRET,
                 refreshToken: integration.google_refresh_token,
                 calendarId: integration.calendar_id || 'primary'
             });

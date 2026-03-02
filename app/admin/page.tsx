@@ -64,9 +64,10 @@ export default function AdminPage() {
     const [holidays, setHolidays] = useState<any[]>([]);
     const [globalSettings, setGlobalSettings] = useState<Record<string, string>>({});
     const [isAddingStylist, setIsAddingStylist] = useState(false);
-    const [newStylist, setNewStylist] = useState({ name: '', phone: '', calendar_id: '', google_refresh_token: '' });
+    const [newStylist, setNewStylist] = useState({ name: '', phone: '', calendar_id: '', google_refresh_token: '', google_client_id: '', google_client_secret: '' });
     const [isAddingHoliday, setIsAddingHoliday] = useState(false);
     const [newHoliday, setNewHoliday] = useState({ date: '', reason: '', stylist_id: '' });
+    const [integrationByStylist, setIntegrationByStylist] = useState<Record<string, any>>({});
 
     // Edit State
     const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -114,13 +115,30 @@ export default function AdminPage() {
             const sData = await sRes.json();
             const svData = await svRes.json();
 
+            const stylistList = Array.isArray(sData) ? sData : [];
             setBookings(Array.isArray(bData) ? bData : []);
-            setStylists(Array.isArray(sData) ? sData : []);
+            setStylists(stylistList);
             setServices(Array.isArray(svData) ? svData : []);
+            fetchStylistIntegrations(stylistList);
         } catch (err) {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchStylistIntegrations = async (stylistList: Stylist[]) => {
+        try {
+            const pairs = await Promise.all(
+                stylistList.map(async (stylist) => {
+                    const res = await fetch(`/api/stylists/integration?id=${stylist.id}`);
+                    if (!res.ok) return [stylist.id, null] as const;
+                    return [stylist.id, await res.json()] as const;
+                })
+            );
+            setIntegrationByStylist(Object.fromEntries(pairs));
+        } catch (err) {
+            console.error(err);
         }
     };
 
@@ -193,19 +211,21 @@ export default function AdminPage() {
             });
             if (res.ok) {
                 const created = await res.json();
-                if (newStylist.calendar_id || newStylist.google_refresh_token) {
+                if (newStylist.calendar_id || newStylist.google_refresh_token || newStylist.google_client_id || newStylist.google_client_secret) {
                     await fetch('/api/stylists/integration', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             stylist_id: created.id,
                             calendar_id: newStylist.calendar_id || 'primary',
-                            google_refresh_token: newStylist.google_refresh_token
+                            google_refresh_token: newStylist.google_refresh_token,
+                            google_client_id: newStylist.google_client_id,
+                            google_client_secret: newStylist.google_client_secret
                         })
                     });
                 }
                 setIsAddingStylist(false);
-                setNewStylist({ name: '', phone: '', calendar_id: '', google_refresh_token: '' });
+                setNewStylist({ name: '', phone: '', calendar_id: '', google_refresh_token: '', google_client_id: '', google_client_secret: '' });
                 fetchData();
             }
         } catch (err) {
@@ -223,13 +243,22 @@ export default function AdminPage() {
         }
     };
 
-    const updateStylistCalendar = async (stylistId: string, calendarId: string, refreshToken?: string) => {
+    const updateStylistCalendar = async (stylistId: string, updates: Record<string, string>) => {
         try {
+            const current = integrationByStylist[stylistId] || {};
+            const payload = {
+                stylist_id: stylistId,
+                calendar_id: updates.calendar_id ?? current.calendar_id ?? 'primary',
+                google_refresh_token: updates.google_refresh_token ?? current.google_refresh_token ?? '',
+                google_client_id: updates.google_client_id ?? current.google_client_id ?? '',
+                google_client_secret: updates.google_client_secret ?? current.google_client_secret ?? ''
+            };
             await fetch('/api/stylists/integration', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stylist_id: stylistId, calendar_id: calendarId, google_refresh_token: refreshToken })
+                body: JSON.stringify(payload)
             });
+            setIntegrationByStylist(prev => ({ ...prev, [stylistId]: { ...current, ...payload } }));
         } catch (err) {
             console.error(err);
         }
@@ -718,10 +747,33 @@ export default function AdminPage() {
                                                     defaultValue={s.calendar_id || ''}
                                                     placeholder="email@gmail.com or 'primary'"
                                                     className="h-8 !bg-neutral-800 !border-neutral-700 !text-sm !text-white"
-                                                    onBlur={(e) => updateStylistCalendar(s.id, e.target.value)}
+                                                    onBlur={(e) => updateStylistCalendar(s.id, { calendar_id: e.target.value })}
                                                 />
                                             </div>
                                             <p className="text-[9px] text-gray-600 mt-1 italic">Leaves field to sync with main salon calendar.</p>
+                                            <Label className="text-[10px] uppercase text-gray-500 mb-1 mt-3 block">Google OAuth Client ID</Label>
+                                            <Input
+                                                defaultValue={integrationByStylist[s.id]?.google_client_id || ''}
+                                                placeholder="Google OAuth Client ID"
+                                                className="h-8 !bg-neutral-800 !border-neutral-700 !text-sm !text-white"
+                                                onBlur={(e) => updateStylistCalendar(s.id, { google_client_id: e.target.value })}
+                                            />
+                                            <Label className="text-[10px] uppercase text-gray-500 mb-1 mt-3 block">Google OAuth Client Secret</Label>
+                                            <Input
+                                                type="password"
+                                                defaultValue={integrationByStylist[s.id]?.google_client_secret || ''}
+                                                placeholder="Google OAuth Client Secret"
+                                                className="h-8 !bg-neutral-800 !border-neutral-700 !text-sm !text-white"
+                                                onBlur={(e) => updateStylistCalendar(s.id, { google_client_secret: e.target.value })}
+                                            />
+                                            <Label className="text-[10px] uppercase text-gray-500 mb-1 mt-3 block">Google Refresh Token</Label>
+                                            <Input
+                                                type="password"
+                                                defaultValue={integrationByStylist[s.id]?.google_refresh_token || ''}
+                                                placeholder="Google Refresh Token"
+                                                className="h-8 !bg-neutral-800 !border-neutral-700 !text-sm !text-white"
+                                                onBlur={(e) => updateStylistCalendar(s.id, { google_refresh_token: e.target.value })}
+                                            />
                                         </div>
 
                                         <div className="flex gap-2">
@@ -950,6 +1002,25 @@ export default function AdminPage() {
                             />
                         </div>
                         <div>
+                            <Label className="!text-gray-300">Google OAuth Client ID (Optional)</Label>
+                            <Input
+                                placeholder="xxxx.apps.googleusercontent.com"
+                                value={newStylist.google_client_id}
+                                onChange={e => setNewStylist({ ...newStylist, google_client_id: e.target.value })}
+                                className="!bg-neutral-800 !border-neutral-700 !text-white"
+                            />
+                        </div>
+                        <div>
+                            <Label className="!text-gray-300">Google OAuth Client Secret (Optional)</Label>
+                            <Input
+                                type="password"
+                                placeholder="GOCSPX-..."
+                                value={newStylist.google_client_secret}
+                                onChange={e => setNewStylist({ ...newStylist, google_client_secret: e.target.value })}
+                                className="!bg-neutral-800 !border-neutral-700 !text-white"
+                            />
+                        </div>
+                        <div>
                             <Label className="!text-gray-300">Google OAuth Refresh Token (Optional)</Label>
                             <Input
                                 placeholder="1//0g...."
@@ -957,7 +1028,7 @@ export default function AdminPage() {
                                 onChange={e => setNewStylist({ ...newStylist, google_refresh_token: e.target.value })}
                                 className="!bg-neutral-800 !border-neutral-700 !text-white"
                             />
-                            <p className="text-[10px] text-gray-500 mt-1">Without token, stylist will use salon-level Google credentials.</p>
+                            <p className="text-[10px] text-gray-500 mt-1">Save stylist calendar credentials here to avoid future code deployments.</p>
                         </div>
                         <Button type="submit" className="w-full bg-white text-black hover:bg-gray-200">Create Stylist</Button>
                     </form>

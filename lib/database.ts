@@ -319,20 +319,35 @@ export async function getStylistIntegration(db: D1Database, stylistId: string): 
 }
 
 export async function saveStylistIntegration(db: D1Database, data: any): Promise<void> {
+    const existing: any = await db.prepare('SELECT id FROM stylist_integrations WHERE stylist_id = ?').bind(data.stylist_id).first();
+
     await db.prepare(
-        `INSERT INTO stylist_integrations (id, stylist_id, google_access_token, google_refresh_token, calendar_id, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
+        `INSERT INTO stylist_integrations (
+            id,
+            stylist_id,
+            google_access_token,
+            google_refresh_token,
+            calendar_id,
+            google_client_id,
+            google_client_secret,
+            updated_at
+        )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(stylist_id) DO UPDATE SET
             google_access_token = excluded.google_access_token,
             google_refresh_token = excluded.google_refresh_token,
             calendar_id = excluded.calendar_id,
+            google_client_id = excluded.google_client_id,
+            google_client_secret = excluded.google_client_secret,
             updated_at = excluded.updated_at`
     ).bind(
-        data.id || `${data.stylist_id}-google`,
+        existing?.id || data.id || `${data.stylist_id}-google`,
         data.stylist_id,
-        data.google_access_token,
-        data.google_refresh_token,
-        data.calendar_id,
+        data.google_access_token || null,
+        data.google_refresh_token || null,
+        data.calendar_id || null,
+        data.google_client_id || null,
+        data.google_client_secret || null,
         new Date().toISOString()
     ).run();
 }

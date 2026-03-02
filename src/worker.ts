@@ -22,6 +22,7 @@ import {
     updateStylist,
     deleteStylist,
     updateStylistIntegration,
+    saveStylistIntegration,
     getChat,
     createChat,
     addMessage,
@@ -35,11 +36,10 @@ import {
 } from '../lib/database';
 import {
     generateSlotsForStylist,
-    generateSlotsAllStylists,
     filterFutureSlots
 } from '../lib/slot-engine';
 import { generateAIResponse, extractContactInfo, runBookingStateMachine } from '../lib/chat-agent';
-import { createGoogleCalendarClient } from '../lib/google-calendar';
+import { createGoogleCalendarClient, GoogleCalendarClient } from '../lib/google-calendar';
 
 interface Env {
     ASSETS: { fetch: (request: Request) => Promise<Response> };
@@ -155,7 +155,13 @@ export default {
 
             if (path === '/api/stylists' && method === 'POST') {
                 const body = await request.json();
-                return json(await createStylist(env.DB, body), 201);
+                return json(await createStylist(env.DB, {
+                    name: body.name,
+                    phone: body.phone,
+                    working_days: body.working_days,
+                    start_time: body.start_time,
+                    end_time: body.end_time
+                }), 201);
             }
 
             if (path === '/api/stylists' && method === 'PUT') {
@@ -177,8 +183,32 @@ export default {
                     return json(await getStylistIntegration(env.DB, id));
                 }
                 if (method === 'POST') {
-                    const { stylist_id, calendar_id } = await request.json();
-                    await updateStylistIntegration(env.DB, stylist_id, calendar_id);
+                    const {
+                        stylist_id,
+                        calendar_id,
+                        google_refresh_token,
+                        google_access_token,
+                        google_client_id,
+                        google_client_secret
+                    } = await request.json() as any;
+                    if (!stylist_id) return json({ error: 'Missing stylist_id' }, 400);
+
+                    const current = await getStylistIntegration(env.DB, stylist_id);
+                    const hasOauthPayload = [google_refresh_token, google_access_token, google_client_id, google_client_secret]
+                        .some(v => typeof v === 'string' && v.length > 0);
+
+                    if (hasOauthPayload || current?.google_refresh_token || current?.google_client_id || current?.google_client_secret) {
+                        await saveStylistIntegration(env.DB, {
+                            stylist_id,
+                            calendar_id: calendar_id ?? current?.calendar_id ?? 'primary',
+                            google_refresh_token: google_refresh_token ?? current?.google_refresh_token ?? '',
+                            google_access_token: google_access_token ?? current?.google_access_token ?? '',
+                            google_client_id: google_client_id ?? current?.google_client_id ?? '',
+                            google_client_secret: google_client_secret ?? current?.google_client_secret ?? ''
+                        });
+                    } else {
+                        await updateStylistIntegration(env.DB, stylist_id, calendar_id || 'primary');
+                    }
                     return json({ success: true });
                 }
             }
@@ -368,7 +398,7 @@ async function syncWithGoogleCalendar(env: Env, start: Date, end: Date): Promise
 
     try {
         const calendar = createGoogleCalendarClient(env);
-        const blockedRanges = await calendar.getBusySlots(start, end);
+        const blockedRanges = await calendar.getBusySlots(start);
 
         if (blockedRanges.length > 0) {
             for (const range of blockedRanges) {
@@ -384,6 +414,57 @@ async function syncWithGoogleCalendar(env: Env, start: Date, end: Date): Promise
     } catch (e) {
         console.error('Failed to sync with Google Calendar:', e);
     }
+}
+
+
+async function getCalendarClientsForStylist(env: Env, stylistId: string): Promise<GoogleCalendarClient[]> {
+    const clients: GoogleCalendarClient[] = [];
+    const seen = new Set<string>();
+
+    const integration = await getStylistIntegration(env.DB, stylistId);
+    const stylistClientId = integration?.google_client_id || env.GOOGLE_CLIENT_ID;
+    const stylistClientSecret = integration?.google_client_secret || env.GOOGLE_CLIENT_SECRET;
+    const stylistRefreshToken = integration?.google_refresh_token;
+
+    if (stylistClientId && stylistClientSecret && stylistRefreshToken) {
+        const key = `${stylistClientId}|${stylistClientSecret}|${stylistRefreshToken}|${integration?.calendar_id || 'primary'}`;
+        if (!seen.has(key)) {
+            clients.push(new GoogleCalendarClient({
+                clientId: stylistClientId,
+                clientSecret: stylistClientSecret,
+                refreshToken: stylistRefreshToken,
+                calendarId: integration?.calendar_id || 'primary'
+            }));
+            seen.add(key);
+        }
+    }
+
+    if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
+        const ownerCalendarId = env.GOOGLE_CALENDAR_ID || 'primary';
+        const key = `${env.GOOGLE_CLIENT_ID}|${env.GOOGLE_CLIENT_SECRET}|${env.GOOGLE_REFRESH_TOKEN}|${ownerCalendarId}`;
+        if (!seen.has(key)) {
+            clients.push(createGoogleCalendarClient(env));
+            seen.add(key);
+        }
+    }
+
+    return clients;
+}
+
+async function getExternalBusySlotsForStylist(env: Env, stylistId: string, date: Date): Promise<{ start: Date; end: Date }[]> {
+    const clients = await getCalendarClientsForStylist(env, stylistId);
+    const busySlots: { start: Date; end: Date }[] = [];
+
+    for (const client of clients) {
+        try {
+            const slots = await client.getBusySlots(date);
+            busySlots.push(...slots.map(s => ({ start: s.start, end: s.end })));
+        } catch (error) {
+            console.error(`Failed to fetch busy slots for stylist ${stylistId}:`, error);
+        }
+    }
+
+    return busySlots;
 }
 
 async function handleAvailability(url: URL, env: Env): Promise<Response> {
@@ -422,19 +503,12 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
     // It does NOT import "Doctor Appt" as a booking yet unless we fully implemented that.
     // Let's stick to the previous pattern: Fetch GCal busy slots for blocking, AND sync internal bookings.
 
-    let externalBusySlots: { start: Date, end: Date }[] = [];
-    try {
-        if (env.GOOGLE_CLIENT_ID) {
-            const calendar = createGoogleCalendarClient(env);
-            externalBusySlots = await calendar.getBusySlots(date);
-        }
-    } catch (e) { console.error(e); }
-
     if (stylistId && stylistId !== 'any') {
         const stylist = await getStylist(env.DB, stylistId);
         if (!stylist) return json({ error: 'Stylist not found' }, 404);
 
         const bookings = await getBookingsForStylist(env.DB, stylistId, date);
+        const externalBusySlots = await getExternalBusySlotsForStylist(env, stylistId, date);
         const slots = generateSlotsForStylist(stylist, date, service.duration_minutes, bookings, externalBusySlots, businessHours, holidays);
 
         return json({
@@ -444,15 +518,26 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
         });
     }
 
-    // Auto-assign mode
+    // Auto-assign mode: calculate per stylist using each stylist's calendar + owner calendar.
     const stylists = await getStylists(env.DB, true);
-    const bookingsByStyleist = new Map();
+    const aggregatedSlots: { start: Date; end: Date; stylist_id: string; stylist_name: string }[] = [];
+
     for (const stylist of stylists) {
-        bookingsByStyleist.set(stylist.id, await getBookingsForStylist(env.DB, stylist.id, date));
+        const bookings = await getBookingsForStylist(env.DB, stylist.id, date);
+        const externalBusySlots = await getExternalBusySlotsForStylist(env, stylist.id, date);
+        const slots = generateSlotsForStylist(stylist, date, service.duration_minutes, bookings, externalBusySlots, businessHours, holidays);
+
+        for (const slot of filterFutureSlots(slots)) {
+            aggregatedSlots.push({
+                start: slot,
+                end: new Date(slot.getTime() + service.duration_minutes * 60000),
+                stylist_id: stylist.id,
+                stylist_name: stylist.name,
+            });
+        }
     }
 
-    const allSlots = generateSlotsAllStylists(stylists, date, service.duration_minutes, bookingsByStyleist, externalBusySlots, businessHours, holidays);
-    const futureSlots = allSlots.filter(slot => slot.start > new Date());
+    const futureSlots = aggregatedSlots.sort((a, b) => a.start.getTime() - b.start.getTime());
 
     return json({
         slots: futureSlots.map(slot => ({
@@ -466,6 +551,25 @@ async function handleAvailability(url: URL, env: Env): Promise<Response> {
     });
 }
 // ... (skip other handlers) ...
+
+function isOverlapping(startA: Date, endA: Date, startB: Date, endB: Date): boolean {
+    return startA < endB && endA > startB;
+}
+
+async function findBookingConflict(
+    env: Env,
+    stylistId: string,
+    startTime: Date,
+    endTime: Date,
+    excludeBookingId?: string
+): Promise<any | null> {
+    const bookings = await getBookingsForStylist(env.DB, stylistId, startTime);
+    return bookings.find((b: any) =>
+        b.id !== excludeBookingId &&
+        ['confirmed', 'pending'].includes(b.status) &&
+        isOverlapping(startTime, endTime, b.start_time, b.end_time)
+    ) || null;
+}
 
 async function handleCreateBooking(request: Request, env: Env): Promise<Response> {
     const body: any = await request.json();
@@ -485,6 +589,14 @@ async function handleCreateBooking(request: Request, env: Env): Promise<Response
     const endTime = new Date(startTime);
     endTime.setMinutes(endTime.getMinutes() + service.duration_minutes);
 
+    const conflict = await findBookingConflict(env, stylist_id, startTime, endTime);
+    if (conflict) {
+        return json({
+            error: "Requested slot overlaps with an existing booking",
+            conflict
+        }, 409);
+    }
+
     let booking = await createBooking(env.DB, {
         client_name, client_email, client_phone, service_id, stylist_id,
         start_time: startTime,
@@ -492,30 +604,22 @@ async function handleCreateBooking(request: Request, env: Env): Promise<Response
         status: 'confirmed',
     });
 
-    // Sync to Google Calendar
+    // Sync to stylist calendar and salon-owner calendar
     try {
-        let calendar = null;
+        const calendars = await getCalendarClientsForStylist(env, stylist_id);
+        let firstEventId: string | null = null;
 
-        // 1. Try Stylist Integration
-        const integration = await getStylistIntegration(env.DB, stylist_id);
-        if (integration && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
-            const { GoogleCalendarClient } = await import('../lib/google-calendar');
-            calendar = new GoogleCalendarClient({
-                clientId: env.GOOGLE_CLIENT_ID,
-                clientSecret: env.GOOGLE_CLIENT_SECRET,
-                refreshToken: integration.google_refresh_token,
-                calendarId: integration.calendar_id || 'primary'
-            });
+        for (const calendar of calendars) {
+            try {
+                const eventId = await calendar.createEvent(booking, service.name, stylist.name);
+                if (!firstEventId) firstEventId = eventId;
+            } catch (calendarError) {
+                console.error('Google Calendar create sync failed (non-fatal):', calendarError);
+            }
         }
 
-        // 2. Fallback to Global Environment
-        if (!calendar && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
-            calendar = createGoogleCalendarClient(env);
-        }
-
-        if (calendar) {
-            const eventId = await calendar.createEvent(booking, service.name, stylist.name);
-            const updated = await updateBooking(env.DB, booking.id, { google_event_id: eventId });
+        if (firstEventId) {
+            const updated = await updateBooking(env.DB, booking.id, { google_event_id: firstEventId });
             if (updated) booking = updated;
         }
     } catch (calendarError) {
@@ -542,38 +646,51 @@ async function handleUpdateBooking(request: Request, env: Env): Promise<Response
 
 async function handleEditBooking(request: Request, env: Env): Promise<Response> {
     const body: any = await request.json();
-    const { id, ...updates } = body;
+    const { id, force_override, ...updates } = body;
 
     if (!id) return json({ error: 'Missing id' }, 400);
 
     if (updates.start_time) updates.start_time = new Date(updates.start_time);
     if (updates.end_time) updates.end_time = new Date(updates.end_time);
 
+    const existing = await env.DB.prepare('SELECT * FROM bookings WHERE id = ?').bind(id).first() as any;
+    if (!existing) return json({ error: 'Booking not found' }, 404);
+
+    const nextStylistId = updates.stylist_id || existing.stylist_id;
+    const nextStart = updates.start_time || new Date(existing.start_time);
+
+    let nextEnd = updates.end_time ? updates.end_time : new Date(existing.end_time);
+    if (!updates.end_time && (updates.start_time || updates.service_id)) {
+        const nextService = await getService(env.DB, updates.service_id || existing.service_id);
+        const duration = nextService?.duration_minutes || Math.max(15, Math.round((new Date(existing.end_time).getTime() - new Date(existing.start_time).getTime()) / 60000));
+        nextEnd = new Date(nextStart.getTime() + duration * 60000);
+        updates.end_time = nextEnd;
+    }
+
+    const conflict = await findBookingConflict(env, nextStylistId, nextStart, nextEnd, id);
+    if (conflict && !force_override) {
+        return json({
+            error: "Amended slot overlaps with an existing booking",
+            requires_acknowledgement: true,
+            conflict
+        }, 409);
+    }
+
     const booking = await updateBooking(env.DB, id, updates);
     if (!booking) return json({ error: 'Booking not found' }, 404);
 
     try {
-        let calendar = null;
-        const integration = await getStylistIntegration(env.DB, booking.stylist_id);
-        if (integration && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
-            const { GoogleCalendarClient } = await import('../lib/google-calendar');
-            calendar = new GoogleCalendarClient({
-                clientId: env.GOOGLE_CLIENT_ID,
-                clientSecret: env.GOOGLE_CLIENT_SECRET,
-                refreshToken: integration.google_refresh_token,
-                calendarId: integration.calendar_id || 'primary'
-            });
-        }
+        const calendars = await getCalendarClientsForStylist(env, booking.stylist_id);
+        const service = await getService(env.DB, booking.service_id);
+        const stylist = await getStylist(env.DB, booking.stylist_id);
 
-        if (!calendar && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
-            calendar = createGoogleCalendarClient(env);
-        }
-
-        if (calendar) {
-            const service = await getService(env.DB, booking.service_id);
-            const stylist = await getStylist(env.DB, booking.stylist_id);
-            if (service && stylist) {
-                await calendar.updateEvent(booking, service.name, stylist.name);
+        if (service && stylist) {
+            for (const calendar of calendars) {
+                try {
+                    await calendar.updateEvent(booking, service.name, stylist.name);
+                } catch (e) {
+                    console.error('Calendar update failed (non-fatal)', e);
+                }
             }
         }
     } catch (e) {
@@ -593,24 +710,13 @@ async function handleDeleteBooking(request: Request, env: Env): Promise<Response
     if (!booking) return json({ error: 'Booking not found' }, 404);
 
     try {
-        let calendar = null;
-        const integration = await getStylistIntegration(env.DB, booking.stylist_id);
-        if (integration && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
-            const { GoogleCalendarClient } = await import('../lib/google-calendar');
-            calendar = new GoogleCalendarClient({
-                clientId: env.GOOGLE_CLIENT_ID,
-                clientSecret: env.GOOGLE_CLIENT_SECRET,
-                refreshToken: integration.google_refresh_token,
-                calendarId: integration.calendar_id || 'primary'
-            });
-        }
-
-        if (!calendar && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_REFRESH_TOKEN) {
-            calendar = createGoogleCalendarClient(env);
-        }
-
-        if (calendar) {
-            await calendar.deleteEvent(booking.id);
+        const calendars = await getCalendarClientsForStylist(env, booking.stylist_id);
+        for (const calendar of calendars) {
+            try {
+                await calendar.deleteEvent(booking.id);
+            } catch (e) {
+                console.error('Calendar delete failed (non-fatal)', e);
+            }
         }
     } catch (e) {
         console.error('Calendar delete failed', e);

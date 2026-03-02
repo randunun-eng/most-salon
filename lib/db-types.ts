@@ -66,6 +66,8 @@ export interface StylistIntegration {
     google_access_token: string;
     google_refresh_token: string;
     calendar_id: string;
+    google_client_id?: string;
+    google_client_secret?: string;
     updated_at: Date;
 }
 

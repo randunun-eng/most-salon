@@ -350,6 +350,43 @@ export default function AdminPage() {
         return d.toDateString() === date.toDateString();
     }).sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
 
+
+    const getWeekStart = (base: Date) => {
+        const d = new Date(base);
+        const day = d.getDay();
+        d.setDate(d.getDate() - day);
+        d.setHours(0, 0, 0, 0);
+        return d;
+    };
+
+    const weekStart = getWeekStart(date);
+    const weekDays = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(weekStart);
+        d.setDate(weekStart.getDate() + i);
+        return d;
+    });
+
+    const weekBookings = bookings.filter((b) => {
+        const start = new Date(b.start_time);
+        return start >= weekStart && start < new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000) && b.status !== 'cancelled';
+    });
+
+    const dayKey = (d: Date) => d.toISOString().split('T')[0];
+
+    const toTopPercent = (dateValue: string | Date) => {
+        const d = new Date(dateValue);
+        const minutes = d.getHours() * 60 + d.getMinutes();
+        return Math.max(0, Math.min(100, (minutes / (24 * 60)) * 100));
+    };
+
+    const toHeightPercent = (startValue: string | Date, endValue: string | Date) => {
+        const start = new Date(startValue).getTime();
+        const end = new Date(endValue).getTime();
+        const mins = Math.max(15, (end - start) / 60000);
+        return Math.max(2, (mins / (24 * 60)) * 100);
+    };
+
+
     // Create Booking
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -613,6 +650,41 @@ export default function AdminPage() {
                             <StatsCard title="Completed" value={selectedDateBookings.filter(b => b.status === 'completed').length} />
                             <StatsCard title="Total" value={selectedDateBookings.length} />
                             <StatsCard title="Pending" value={selectedDateBookings.filter(b => b.status === 'pending').length} />
+                        </div>
+
+                        <div className="mb-6 md:mb-10 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+                            <h3 className="text-sm font-semibold text-white mb-3">Weekly Timeline (Google-style overview)</h3>
+                            <div className="grid grid-cols-7 gap-2">
+                                {weekDays.map((d) => {
+                                    const dayBookings = weekBookings.filter((b) => dayKey(new Date(b.start_time)) === dayKey(d));
+                                    return (
+                                        <div key={d.toISOString()} className="relative h-56 rounded-lg border border-neutral-800 bg-neutral-950 overflow-hidden">
+                                            <div className="absolute top-0 left-0 right-0 z-10 bg-neutral-900/95 border-b border-neutral-800 px-2 py-1 text-[10px] text-gray-300">
+                                                {d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })}
+                                            </div>
+                                            <div className="absolute inset-0 mt-6">
+                                                {Array.from({ length: 6 }).map((_, i) => (
+                                                    <div key={i} className="border-t border-neutral-900" style={{ height: '16.66%' }} />
+                                                ))}
+                                                {dayBookings.map((b) => {
+                                                    const top = toTopPercent(b.start_time);
+                                                    const height = toHeightPercent(b.start_time, b.end_time);
+                                                    return (
+                                                        <div
+                                                            key={b.id}
+                                                            className="absolute left-1 right-1 rounded bg-blue-600/80 px-1 py-0.5 text-[9px] text-white overflow-hidden"
+                                                            style={{ top: `${top}%`, height: `${height}%` }}
+                                                            title={`${b.client_name} - ${services.find(s => s.id === b.service_id)?.name || 'Service'}`}
+                                                        >
+                                                            {b.client_name}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
 
                         <div className="bg-neutral-900 border !border-neutral-800 rounded-2xl overflow-hidden">
@@ -984,20 +1056,44 @@ export default function AdminPage() {
                     <DialogHeader>
                         <DialogTitle className="!text-white text-xl">Stylist Calendar (Today + 7 days)</DialogTitle>
                     </DialogHeader>
-                    <div className="max-h-[65vh] overflow-y-auto space-y-2 pt-2">
-                        {stylistCalendarLoading ? (
-                            <div className="text-sm text-gray-400">Loading calendar...</div>
-                        ) : stylistCalendarEvents.length === 0 ? (
-                            <div className="text-sm text-gray-400">No appointments or leaves in the 7-day window.</div>
-                        ) : stylistCalendarEvents.map((event, idx) => (
-                            <div key={`${event.id}-${idx}`} className="rounded-lg border border-neutral-800 bg-neutral-950 p-3">
-                                <div className="text-sm font-medium text-white">{event.title}</div>
-                                <div className="text-xs text-gray-400 mt-1">{new Date(event.start).toLocaleString()} → {new Date(event.end).toLocaleString()}</div>
-                                <div className="text-[11px] text-gray-500 mt-1 uppercase tracking-wide">{event.source} · {event.status || 'active'}</div>
+                    {stylistCalendarLoading ? (
+                        <div className="text-sm text-gray-400">Loading calendar...</div>
+                    ) : (
+                        <div className="max-h-[65vh] overflow-y-auto">
+                            <div className="grid grid-cols-7 gap-2">
+                                {weekDays.map((d) => {
+                                    const dayEvents = stylistCalendarEvents.filter((event) => dayKey(new Date(event.start)) === dayKey(d));
+                                    return (
+                                        <div key={d.toISOString()} className="relative h-[420px] rounded-lg border border-neutral-800 bg-neutral-950 overflow-hidden">
+                                            <div className="absolute top-0 left-0 right-0 z-10 bg-neutral-900/95 border-b border-neutral-800 px-2 py-1 text-[10px] text-gray-300">
+                                                {d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })}
+                                            </div>
+                                            <div className="absolute inset-0 mt-6">
+                                                {Array.from({ length: 8 }).map((_, i) => (
+                                                    <div key={i} className="border-t border-neutral-900" style={{ height: '12.5%' }} />
+                                                ))}
+                                                {dayEvents.map((event, idx) => {
+                                                    const top = toTopPercent(event.start);
+                                                    const height = toHeightPercent(event.start, event.end);
+                                                    return (
+                                                        <div
+                                                            key={`${event.id}-${idx}`}
+                                                            className={`absolute left-1 right-1 rounded px-1 py-0.5 text-[9px] text-white overflow-hidden ${event.source === 'google' ? 'bg-emerald-600/80' : 'bg-blue-600/80'}`}
+                                                            style={{ top: `${top}%`, height: `${height}%` }}
+                                                            title={`${event.title} (${event.source})`}
+                                                        >
+                                                            {event.title}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
-                        ))}
-                    </div>
-                    <p className="text-[11px] text-gray-500">Auto-sync refreshes every 1 minute while this window is open.</p>
+                        </div>
+                    )}
+                    <p className="text-[11px] text-gray-500">Auto-sync refreshes every 1 minute while this window is open. Blue = salon bookings, Green = Google calendar.</p>
                 </DialogContent>
             </Dialog>
 

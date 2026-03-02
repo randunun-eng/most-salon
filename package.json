@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:merge-conflicts": "if rg -n '^(<<<<<<<|=======|>>>>>>>)' app src lib functions components; then echo 'Merge conflict markers found'; exit 1; else echo 'No merge conflict markers'; fi"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.23",
